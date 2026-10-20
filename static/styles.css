@@ -367,6 +367,51 @@ button[aria-disabled="true"],
   background: var(--erro-bg);
 }
 
+.btn-word {
+  background: var(--surface);
+  color: var(--primary);
+  border: 1.5px solid var(--primary);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-word:hover:not(:disabled):not([aria-disabled="true"]):not([aria-busy="true"]) {
+  background: var(--primary-soft);
+  border-color: var(--primary-hover);
+  color: var(--primary-hover);
+  transform: translateY(-1px);
+}
+.btn-word:active:not(:disabled):not([aria-disabled="true"]):not([aria-busy="true"]) {
+  transform: translateY(0);
+}
+[data-theme="dark"] .btn-word {
+  border-color: var(--primary-light, #60a5fa);
+  color: var(--primary-light, #60a5fa);
+  background: var(--surface-2);
+}
+[data-theme="dark"] .btn-word:hover:not(:disabled):not([aria-disabled="true"]):not([aria-busy="true"]) {
+  background: rgba(96, 165, 250, 0.15);
+}
+
+.barra-fixa-acoes {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+@media (max-width: 640px) {
+  .barra-fixa {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .barra-fixa-acoes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+  }
+}
+
 .btn-copiar {
   font-size: 0.78rem;
   padding: 4px 10px;

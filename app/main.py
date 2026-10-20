@@ -421,6 +421,96 @@ def api_gerar(tipo: str, dados: dict) -> JSONResponse:
     })
 
 
+@app.post("/api/gerar-word/{tipo}")
+def api_gerar_word(tipo: str, dados: dict) -> JSONResponse:
+    tipo_norm = tipo.lower()
+    if tipo_norm not in ("requisicao", "reforco", "anulacao"):
+        raise HTTPException(400, "Tipo de documento inválido.")
+    av = _avaliar(tipo, dados)
+    if av.pode_gerar:
+        doc = textos.MONTADORES[av.tipo](av.norm)
+    else:
+        try:
+            doc, _ = rascunho.montar_doc(av, dados)
+        except rascunho.PreviaIndisponivel:
+            cab = rascunho._cabecalho(dados, av)
+            if av.tipo == "REFORCO":
+                ne_dummy = {
+                    "chave": "160329000012026NE000000", "ug": "160329", "ne": "2026NE000000",
+                    "data_emissao": str(date.today()), "doc_favorecido": ("00.000.000/0001-00", "EMPRESA FAVORECIDA EXEMPLO"),
+                    "valor_atual": rascunho.ZERO, "itens": [], "derivados": {}, "tipo_empenho": "ORDINÁRIO",
+                }
+                norm = {
+                    "cabecalho": cab, "ne": ne_dummy, "itens": [], "total": rascunho.ZERO,
+                    "fonte": {"ug": "160329", "nc": "[[PREENCHER: NC]]", "nd": "[[PREENCHER: ND]]", "pi": "[[PREENCHER: PI]]", "ptres": "[[PREENCHER: PTRES]]", "ugr": "[[PREENCHER: UGR]]"},
+                    "motivo": {"texto": "[[PREENCHER: motivo do reforço]]", "id": None, "detalhe": ""},
+                }
+                doc = textos.montar_reforco(norm)
+            elif av.tipo == "ANULACAO":
+                norm = {
+                    "cabecalho": cab,
+                    "empenhos": [{
+                        "chave": "160329000012026NE000000", "ug": "160329", "ne": "2026NE000000",
+                        "doc_favorecido": ("00.000.000/0001-00", "EMPRESA FAVORECIDA"),
+                        "valor_atual": rascunho.ZERO,
+                        "liquidado": rascunho.ZERO,
+                        "itens_anulados": [],
+                        "tipo": "TOTAL",
+                        "valor_anular": rascunho.ZERO,
+                        "itens": [],
+                    }],
+                    "total": rascunho.ZERO,
+                    "reempenho": False,
+                    "motivo": {"texto": "[[PREENCHER: motivo da anulação]]", "id": None, "detalhe": ""},
+                }
+                doc = textos.montar_anulacao(norm)
+            else:
+                doc, _ = rascunho.montar_doc(av, dados)
+
+    nome = _nome_arquivo(doc.get("arquivo_base") or f"DIEx_{tipo_norm}_word")
+    config.SAIDA.mkdir(parents=True, exist_ok=True)
+    anx = _anexos_do_documento(av)
+    try:
+        docx_doc = docx_docs.gerar_docx_documento(doc, config.SAIDA / f"{nome}.docx", anexos=anx)
+    except Exception as exc:
+        log.warning("Falha ao gerar documento Word (.docx): %s", exc)
+        raise HTTPException(500, f"Falha ao gerar arquivo Word (.docx): {exc}") from exc
+
+    zip_doc = None
+    if anx and docx_doc and docx_doc.is_file():
+        try:
+            import zipfile
+            nome_zip = f"{nome}_word_com_anexos.zip"
+            caminho_zip = config.SAIDA / nome_zip
+            with zipfile.ZipFile(caminho_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.write(docx_doc, arcname=docx_doc.name)
+                nomes_usados = {docx_doc.name}
+                for rotulo, arq_anx in anx:
+                    p_anx = Path(arq_anx)
+                    if p_anx.is_file():
+                        limpo_rotulo = re.sub(r"[^\w\-]+", "_", rotulo).strip("_")
+                        nome_no_zip = f"{limpo_rotulo}{p_anx.suffix.lower()}"
+                        contador = 1
+                        while nome_no_zip in nomes_usados:
+                            nome_no_zip = f"{limpo_rotulo}_{contador}{p_anx.suffix.lower()}"
+                            contador += 1
+                        nomes_usados.add(nome_no_zip)
+                        zf.write(p_anx, arcname=nome_no_zip)
+            zip_doc = caminho_zip
+        except Exception as exc_zip:
+            log.warning("Falha ao criar arquivo ZIP com anexos: %s", exc_zip)
+            zip_doc = None
+
+    return JSONResponse(content={
+        "ok": True,
+        "documento": docx_doc.name,
+        "docx": docx_doc.name,
+        "zip": zip_doc.name if zip_doc else None,
+        "anexos": [r for r, _ in anx],
+        "pendencias": not av.pode_gerar,
+    })
+
+
 def _caminho_pdf(nome: str) -> Path:
     """Resolve um PDF gerado: só nomes simples, só dentro de saida/ (sem traversal nem symlink para fora)."""
     if not re.fullmatch(r"[\w\-]+\.pdf", nome):

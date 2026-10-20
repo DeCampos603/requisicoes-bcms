@@ -152,3 +152,29 @@ def test_rodape_docx(tmp_path, repo):
     txt_footer = tbl_footer.cell(0, 0).text
     assert "DIEx Requisitório" in txt_footer
 
+
+def test_api_gerar_word_sempre_habilitado(client, repo):
+    """Testa se o endpoint /api/gerar-word/requisicao funciona mesmo com dados incompletos (sempre habilitado)."""
+    # 1. Requisição com dados vazios/incompletos
+    r = client.post("/api/gerar-word/requisicao", json={})
+    assert r.status_code == 200
+    dados = r.json()
+    assert dados["ok"] is True
+    assert dados["docx"].endswith(".docx")
+    assert dados["pendencias"] is True
+
+    # Baixar o docx gerado
+    r_dl = client.get(f"/api/docx/{dados['docx']}")
+    assert r_dl.status_code == 200
+    assert len(r_dl.content) > 1000
+
+    # 2. Requisição completa
+    from conftest import payload_requisicao
+    p = payload_requisicao()
+    r2 = client.post("/api/gerar-word/requisicao", json=p)
+    assert r2.status_code == 200
+    dados2 = r2.json()
+    assert dados2["ok"] is True
+    assert dados2["pendencias"] is False
+
+

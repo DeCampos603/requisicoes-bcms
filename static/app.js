@@ -3013,6 +3013,11 @@ function mostrarConferencia() {
   $('#achados').innerHTML = [...erros, ...alertas, ...infos].map(li).join('') || '<li class="achado">Preencha o formulário: as conferências aparecem aqui.</li>';
   const pode = !erros.length && !pend;
   ['#btn-gerar', '#btn-gerar-2', '#btn-gerar-3'].forEach((s) => { $(s).disabled = !pode; });
+  // O botão de gerar em Word permanece SEMPRE habilitado
+  ['#btn-gerar-word', '#btn-gerar-word-2', '#btn-gerar-word-3'].forEach((s) => {
+    const b = $(s);
+    if (b) b.disabled = false;
+  });
   $('#ajuda-gerar').textContent = pode ? 'O PDF será gerado e anexará os documentos de apoio.' : (erros.length ? `Corrija ${erros.length} erro(s) para liberar o PDF.` : `Confirme a ciência de ${pend} alerta(s).`);
   // a aba "Prévia do DIEx" repete os contadores e o botão, para gerar sem trocar de aba; o selo da aba mostra o que pesa
   $('#previa-contadores').innerHTML = $('#contadores').innerHTML;
@@ -3035,6 +3040,59 @@ function aplicarAchados() {
     const m = $('.msg', c); if (!m) continue;
     if (!m.textContent) { m.textContent = a.mensagem; m.className = `msg ${a.nivel === 'ERRO' ? 'erro' : 'alerta'}`; }
     c.classList.add(a.nivel === 'ERRO' ? 'invalido' : 'aviso');
+  }
+}
+
+// ---------------------------------------------------------------- geração em Word (.docx) — sempre habilitado
+let emSubmissaoWord = false;
+async function gerarWord() {
+  if (emSubmissaoWord) return;
+  emSubmissaoWord = true;
+  const btns = ['#btn-gerar-word', '#btn-gerar-word-2', '#btn-gerar-word-3'].map((s) => $(s)).filter(Boolean);
+  btns.forEach((b) => {
+    b.disabled = true;
+    b.setAttribute('aria-busy', 'true');
+    b.classList.add('carregando');
+    b.dataset.txtOriginal = b.innerHTML;
+    b.innerHTML = '<span>⏳</span> Gerando Word...';
+  });
+  try {
+    const p = payload();
+    const r = await post(`/api/gerar-word/${tipo}`, p);
+    if (r.ok && r.docx) {
+      const a = document.createElement('a');
+      a.href = `/api/docx/${encodeURIComponent(r.docx)}`;
+      a.download = r.docx;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      toast(r.pendencias
+        ? 'Documento Word (.docx) gerado! Pendências do formulário constam como [[PREENCHER]].'
+        : 'Documento Word (.docx) gerado e baixado com sucesso!');
+
+      const el = $('#resultado');
+      if (el) {
+        el.hidden = false;
+        el.innerHTML = `<h2>Documento Word gerado</h2>
+          <p>O arquivo <strong>${esc(r.docx)}</strong> foi gerado e o download iniciado automaticamente.</p>
+          <div class="linha-botoes">
+            <a class="btn btn-primario btn-word" href="/api/docx/${encodeURIComponent(r.docx)}" download="${encodeURIComponent(r.docx)}" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px"><span>📝</span> Baixar Word (.docx) novamente</a>
+            ${r.zip ? `<a class="btn" href="/api/zip/${encodeURIComponent(r.zip)}" download="${encodeURIComponent(r.zip)}" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px"><span>📦</span> Baixar Word + Anexos (ZIP)</a>` : ''}
+          </div>`;
+        el.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  } catch (e) {
+    toast(e.message || 'Falha ao gerar documento Word.');
+  } finally {
+    emSubmissaoWord = false;
+    btns.forEach((b) => {
+      b.disabled = false;
+      b.removeAttribute('aria-busy');
+      b.classList.remove('carregando');
+      if (b.dataset.txtOriginal) b.innerHTML = b.dataset.txtOriginal;
+    });
   }
 }
 
@@ -3242,7 +3300,8 @@ async function iniciar() {
     if (c.checked) s.add(c.dataset.ciente); else s.delete(c.dataset.ciente);
     st.alertas_ciente = [...s]; salvarRascunho(); agendar(true);
   });
-  ['#btn-gerar', '#btn-gerar-2', '#btn-gerar-3'].forEach((s) => $(s).addEventListener('click', gerar));
+  ['#btn-gerar', '#btn-gerar-2', '#btn-gerar-3'].forEach((s) => $(s)?.addEventListener('click', gerar));
+  ['#btn-gerar-word', '#btn-gerar-word-2', '#btn-gerar-word-3'].forEach((s) => $(s)?.addEventListener('click', gerarWord));
   $$('.aba-painel').forEach((b) => b.addEventListener('click', () => { painel = b.dataset.painel; try { localStorage.setItem('reqemp.painel', painel); } catch { /* sem armazenamento */ } atualizarPainel(); }));
   $('#dlg-itens-x').onclick = () => $('#dlg-itens').close();
   $('#dlg-previa-x').onclick = () => { $('#dlg-previa').close(); $('#previa-corpo').innerHTML = ''; };

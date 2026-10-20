@@ -60,11 +60,12 @@
       <section class="cartao" id="previa-viva" aria-labelledby="pt-previa" hidden>
         <div class="previa-topo">
           <div class="contadores" id="previa-contadores"></div>
+          <button type="button" class="btn-secundario btn-word" id="btn-gerar-word-3" title="Gera o documento editável em formato Microsoft Word (.docx), sempre liberado"><span>📝</span> Gerar Word (.docx)</button>
           <button type="button" class="btn-primario" id="btn-gerar-3" disabled>Gerar PDF</button>
         </div>
         <p class="ajuda" id="previa-estado" aria-live="polite"></p>
         <div class="previa-paginas" id="previa-paginas"></div>
-        <p class="ajuda" style="margin-top:8px">Rascunho: é o mesmo texto e a mesma diagramação do PDF, com o que falta destacado em amarelo. Só o botão "Gerar PDF" produz o documento válido.</p>
+        <p class="ajuda" style="margin-top:8px">Rascunho: é o mesmo texto e a mesma diagramação do PDF, com o que falta destacado em amarelo. O botão "Gerar Word" produz o arquivo .docx editável a qualquer momento.</p>
       </section>
       <section class="cartao" id="conferencia" aria-live="polite">
         <h2>Conferência</h2>
@@ -72,6 +73,7 @@
         <div id="total-geral" class="total-geral" hidden></div>
         <ul class="achados" id="achados"></ul>
         <div class="linha-botoes">
+          <button type="button" class="btn-secundario btn-word" id="btn-gerar-word" title="Gera o documento editável em formato Microsoft Word (.docx), sempre liberado"><span>📝</span> Gerar Word (.docx)</button>
           <button type="button" class="btn-primario" id="btn-gerar" disabled>Gerar PDF</button>
         </div>
         <p class="ajuda" id="ajuda-gerar" style="color:var(--muted);font-size:.85rem;margin-top:8px"></p>
@@ -172,7 +174,10 @@
 
   <div class="barra-fixa" id="barra-fixa">
     <span id="barra-resumo" aria-live="polite"></span>
-    <button type="button" class="btn-primario" id="btn-gerar-2" disabled>Gerar PDF</button>
+    <div class="barra-fixa-acoes">
+      <button type="button" class="btn-secundario btn-word" id="btn-gerar-word-2" title="Gera o documento editável em formato Microsoft Word (.docx), sempre liberado"><span>📝</span> Gerar Word</button>
+      <button type="button" class="btn-primario" id="btn-gerar-2" disabled>Gerar PDF</button>
+    </div>
   </div>
 
   <dialog id="dlg-itens" aria-labelledby="dlg-itens-t">
