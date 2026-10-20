@@ -1,0 +1,22 @@
+# .gcloudignore define os arquivos ignorados pelo gcloud run deploy
+# ATENÇÃO: NÃO ignore a pasta dados/ aqui, pois os índices JSON precisam ser enviados ao Cloud Run!
+
+.git/
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+tests/
+saida/*
+!saida/.gitkeep
+anexos/*
+dados/nc/*
+dados/ne/*
+docs/*
+.env
+*.bat
+CLAUDE.md
+AGENTS.md
+GEMINI.md

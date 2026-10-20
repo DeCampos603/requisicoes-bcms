@@ -1,0 +1,389 @@
+{
+  "_comentario": "Catálogos que alimentam os menus de seleção. Editável: acrescente itens mantendo 'id' único e sem espaços. Finalidades novas digitadas pelo usuário ficam em dados/finalidades_extra.json até serem promovidas para cá.",
+  "tipos_unidade": [
+    {
+      "id": "GERENCIADORA",
+      "rotulo": "UG Gerenciadora",
+      "frase": "UG GERENCIADORA",
+      "base": "Decreto 11.462/2023, art. 2º, III",
+      "consolidado": "Gerenciadora"
+    },
+    {
+      "id": "PARTICIPANTE",
+      "rotulo": "UG Participante",
+      "frase": "UG PARTICIPANTE",
+      "base": "Decreto 11.462/2023, art. 2º, IV",
+      "consolidado": "Participante"
+    },
+    {
+      "id": "NAO_PARTICIPANTE",
+      "rotulo": "UG Não Participante (adesão / \"carona\")",
+      "frase": "UG NÃO PARTICIPANTE",
+      "base": "Decreto 11.462/2023, art. 2º, V; Lei 14.133/2021, art. 86, § 2º",
+      "consolidado": "Carona"
+    }
+  ],
+  "modalidades": [
+    {
+      "id": "PREGAO",
+      "rotulo": "Pregão (SRP)",
+      "frase": "pregão",
+      "base": "Lei 14.133/2021, art. 28, I"
+    },
+    {
+      "id": "DISPENSA",
+      "rotulo": "Dispensa de licitação",
+      "frase": "dispensa",
+      "base": "Lei 14.133/2021, art. 75"
+    },
+    {
+      "id": "INEXIGIBILIDADE",
+      "rotulo": "Inexigibilidade de licitação",
+      "frase": "inexigibilidade",
+      "base": "Lei 14.133/2021, art. 74"
+    },
+    {
+      "id": "CONTRATO",
+      "rotulo": "Contrato (execução de contrato vigente)",
+      "frase": "contrato",
+      "base": "Lei 14.133/2021, art. 89"
+    }
+  ],
+  "fundamentos_dispensa": [
+    {
+      "id": "ART75_I",
+      "rotulo": "Art. 75, I — valor (obras, serviços de engenharia e manutenção de veículos automotores)",
+      "frase": "art. 75, I, da Lei 14.133/2021"
+    },
+    {
+      "id": "ART75_II",
+      "rotulo": "Art. 75, II — valor (demais compras e serviços)",
+      "frase": "art. 75, II, da Lei 14.133/2021"
+    },
+    {
+      "id": "ART75_OUTRO",
+      "rotulo": "Outro inciso do art. 75 (informar no detalhamento)",
+      "frase": "art. 75 da Lei 14.133/2021"
+    }
+  ],
+  "fundamentos_inexigibilidade": [
+    {
+      "id": "ART74_I",
+      "rotulo": "Art. 74, I — Fornecedor exclusivo",
+      "frase": "art. 74, I, da Lei 14.133/2021"
+    },
+    {
+      "id": "ART74_II",
+      "rotulo": "Art. 74, II — Profissional do setor artístico consagrado",
+      "frase": "art. 74, II, da Lei 14.133/2021"
+    },
+    {
+      "id": "ART74_III",
+      "rotulo": "Art. 74, III — Serviços técnicos especializados de natureza predominantemente intelectual",
+      "frase": "art. 74, III, da Lei 14.133/2021"
+    },
+    {
+      "id": "ART74_IV",
+      "rotulo": "Art. 74, IV — Credenciamento",
+      "frase": "art. 74, IV, da Lei 14.133/2021"
+    },
+    {
+      "id": "ART74_V",
+      "rotulo": "Art. 74, V — Aquisição ou locação de imóvel",
+      "frase": "art. 74, V, da Lei 14.133/2021"
+    },
+    {
+      "id": "ART74_OUTRO",
+      "rotulo": "Outro fundamento do art. 74 (informar no detalhamento)",
+      "frase": "art. 74 da Lei 14.133/2021"
+    }
+  ],
+  "objetos": [
+    {
+      "id": "MATERIAL",
+      "rotulo": "Aquisição de material",
+      "frase": "AQUISIÇÃO DE MATERIAL"
+    },
+    {
+      "id": "SERVICO",
+      "rotulo": "Contratação de serviço",
+      "frase": "CONTRATAÇÃO DE SERVIÇO"
+    }
+  ],
+  "tipos_empenho": [
+    {
+      "id": "ORDINARIO",
+      "rotulo": "Ordinário",
+      "ajuda": "Valor certo e pagamento em uma só vez.",
+      "base": "Lei 4.320/1964, arts. 58 e 60, caput"
+    },
+    {
+      "id": "GLOBAL",
+      "rotulo": "Global",
+      "ajuda": "Despesa de valor conhecido sujeita a parcelamento (entregas ou parcelas).",
+      "base": "Lei 4.320/1964, art. 60, § 3º"
+    },
+    {
+      "id": "ESTIMATIVO",
+      "rotulo": "Estimativo",
+      "ajuda": "Montante que não se pode determinar de antemão.",
+      "base": "Lei 4.320/1964, art. 60, § 2º"
+    }
+  ],
+  "hipoteses_sem_contrato": [
+    {
+      "id": "ART95_I",
+      "rotulo": "Dispensa de licitação em razão de valor",
+      "base": "Lei 14.133/2021, art. 95, I"
+    },
+    {
+      "id": "ART95_II",
+      "rotulo": "Compra com entrega imediata e integral, sem obrigações futuras",
+      "base": "Lei 14.133/2021, art. 95, II"
+    },
+    {
+      "id": "ATA_SRP",
+      "rotulo": "Contratação por ata de registro de preços (nota de empenho como instrumento hábil)",
+      "base": "Decreto 11.462/2023, art. 34; Lei 14.133/2021, art. 95"
+    }
+  ],
+  "finalidades": [
+    {
+      "id": "MNT_VTR_NBLD",
+      "objeto": "MATERIAL",
+      "texto": "manutenção corretiva e preventiva das viaturas não blindadas"
+    },
+    {
+      "id": "MNT_VTR_BLD",
+      "objeto": "MATERIAL",
+      "texto": "manutenção da capacidade de emprego das viaturas blindadas"
+    },
+    {
+      "id": "SV_MNT_VTR",
+      "objeto": "SERVICO",
+      "texto": "manutenção das viaturas da Organização Militar"
+    },
+    {
+      "id": "SV_MNT_EQUIP",
+      "objeto": "SERVICO",
+      "texto": "manutenção de equipamentos e máquinas da Organização Militar"
+    },
+    {
+      "id": "MNT_PREDIAL",
+      "objeto": "MATERIAL",
+      "texto": "manutenção predial das instalações da Organização Militar"
+    },
+    {
+      "id": "SV_MNT_PREDIAL",
+      "objeto": "SERVICO",
+      "texto": "manutenção e conservação das instalações da Organização Militar"
+    },
+    {
+      "id": "SUBSISTENCIA",
+      "objeto": "MATERIAL",
+      "texto": "aquisição de gêneros alimentícios para a subsistência da tropa"
+    },
+    {
+      "id": "COMBUSTIVEL_LUB",
+      "objeto": "MATERIAL",
+      "texto": "reposição de combustíveis e lubrificantes"
+    },
+    {
+      "id": "EXPEDIENTE",
+      "objeto": "MATERIAL",
+      "texto": "reposição de material de expediente e de consumo da Organização Militar"
+    },
+    {
+      "id": "INFORMATICA",
+      "objeto": "MATERIAL",
+      "texto": "aquisição de material de tecnologia da informação e comunicações"
+    },
+    {
+      "id": "SV_TI",
+      "objeto": "SERVICO",
+      "texto": "contratação de serviços de tecnologia da informação e impressão"
+    },
+    {
+      "id": "MOBILIARIO",
+      "objeto": "MATERIAL",
+      "texto": "aquisição de mobiliário e equipamentos para a Organização Militar"
+    },
+    {
+      "id": "SAUDE",
+      "objeto": "MATERIAL",
+      "texto": "aquisição de insumos para atendimento de saúde"
+    },
+    {
+      "id": "UNIFORMES",
+      "objeto": "MATERIAL",
+      "texto": "aquisição de fardamento, bandeiras e artigos de representação"
+    },
+    {
+      "id": "SV_GRAFICO",
+      "objeto": "SERVICO",
+      "texto": "contratação de serviços gráficos e de comunicação visual"
+    },
+    {
+      "id": "SV_APROVISIONAMENTO",
+      "objeto": "SERVICO",
+      "texto": "manutenção de equipamentos de aprovisionamento"
+    }
+  ],
+  "motivos_reforco": [
+    {
+      "id": "DEMANDA_ADICIONAL",
+      "texto": "Insuficiência do empenho original diante de demanda adicional do mesmo objeto, dentro do quantitativo da ata e da disponibilidade de crédito"
+    },
+    {
+      "id": "ESTIMATIVA_INSUFICIENTE",
+      "texto": "Insuficiência do empenho original, emitido por estimativa ou de forma global, para cobrir as entregas ou parcelas previstas"
+    },
+    {
+      "id": "COMPLEMENTACAO_ITEM",
+      "texto": "Complementação de quantidade de item já empenhado, para atender necessidade superveniente"
+    },
+    {
+      "id": "REGULARIZACAO_VALOR",
+      "texto": "Regularização de diferença de valor apurada entre o empenho emitido e o preço do item"
+    },
+    {
+      "id": "OUTRO",
+      "texto": "Outro motivo (especificar / personalizado)"
+    }
+  ],
+  "motivos_anulacao": [
+    {
+      "id": "SALDO_NAO_UTILIZADO",
+      "texto": "Saldo remanescente não utilizado após a conclusão do fornecimento ou da prestação do serviço"
+    },
+    {
+      "id": "CANCELAMENTO",
+      "texto": "Cancelamento do fornecimento ou do serviço, por interesse da Administração ou por inexecução do contratado"
+    },
+    {
+      "id": "ERRO_EMISSAO",
+      "texto": "Erro na emissão do empenho (valor, classificação orçamentária ou favorecido), com necessidade de reemissão"
+    },
+    {
+      "id": "REEMPENHO_PI",
+      "texto": "Anulação para reempenho, por mudança de Plano Interno, natureza de despesa ou fonte, com retorno do crédito à Nota de Crédito"
+    },
+    {
+      "id": "SEM_ACEITE",
+      "texto": "Fornecedor não confirmou o aceite ou não deu início ao fornecimento no prazo"
+    },
+    {
+      "id": "INSUBSISTENCIA",
+      "texto": "Insubsistência do compromisso que originou o empenho"
+    },
+    {
+      "id": "OUTRO",
+      "texto": "Outro motivo (especificar / personalizado)"
+    }
+  ],
+  "unidades_medida": [
+    "Und",
+    "SV",
+    "Cx",
+    "Pct",
+    "Pç",
+    "Par",
+    "Jg",
+    "Kit",
+    "Kg",
+    "L",
+    "m",
+    "m²",
+    "m³",
+    "Rolo",
+    "Fr",
+    "Gl",
+    "Sc",
+    "Mês",
+    "Hora"
+  ],
+  "postos": [
+    "Gen Ex",
+    "Gen Div",
+    "Gen Bda",
+    "Cel",
+    "Ten Cel",
+    "Maj",
+    "Cap",
+    "1º Ten",
+    "2º Ten",
+    "Asp",
+    "S Ten",
+    "1º Sgt",
+    "2º Sgt",
+    "3º Sgt",
+    "Cb",
+    "Sd",
+    "SC"
+  ],
+  "requisitantes": [
+    {
+      "funcao": "Chefe da Seção de Transporte",
+      "origem": "Transporte/CCAp/Cmdo"
+    },
+    {
+      "funcao": "Chefe do Almoxarifado",
+      "origem": "ALMOX/S4/BCMS"
+    },
+    {
+      "funcao": "Chefe da Seção de Manutenção (COSM)",
+      "origem": "COSM/CMDO/BCMS"
+    },
+    {
+      "funcao": "Chefe da Seção de Aprovisionamento",
+      "origem": "APROV/CCAp/Cmdo"
+    },
+    {
+      "funcao": "Chefe da Seção de Tecnologia da Informação",
+      "origem": "STI/CCAp/Cmdo"
+    }
+  ],
+  "documentos_adesao": [
+    {
+      "id": "TERMO_JUSTIFICATIVA",
+      "rotulo": "Termo de Justificativa de Adesão",
+      "anexo": "Termo de Justificativa de Adesão.",
+      "obrigatorio": true,
+      "ajuda": "Justificativa da vantagem da adesão, inclusive em situação de provável desabastecimento ou descontinuidade de serviço público.",
+      "base": "Lei 14.133/2021, art. 86, § 2º, I; Decreto 11.462/2023, art. 31, I"
+    },
+    {
+      "id": "PESQUISA_PRECOS",
+      "rotulo": "Pesquisa de preços",
+      "anexo": "Pesquisa de preços.",
+      "obrigatorio": true,
+      "ajuda": "Demonstra que os valores registrados na ata são compatíveis com os praticados pelo mercado (art. 23 da Lei 14.133/2021).",
+      "base": "Lei 14.133/2021, art. 86, § 2º, II; Decreto 11.462/2023, art. 31, II"
+    },
+    {
+      "id": "ACEITE_FORNECEDOR",
+      "rotulo": "Aceite do fornecedor",
+      "anexo": "Aceite do fornecedor.",
+      "obrigatorio": true,
+      "ajuda": "Aceitação prévia da adesão pelo fornecedor: precisa ser anterior à autorização da gerenciadora.",
+      "base": "Lei 14.133/2021, art. 86, § 2º, III; Decreto 11.462/2023, art. 31, III e § 1º"
+    },
+    {
+      "id": "AUTORIZACAO_GERENCIADORA",
+      "rotulo": "Autorização do órgão gerenciador",
+      "anexo": "Autorização do órgão gerenciador.",
+      "obrigatorio": false,
+      "ajuda": "Opcional: comprovante da autorização (Compras.gov.br, Gestão de Atas). A data da autorização é informada acima.",
+      "base": "Lei 14.133/2021, art. 86, § 2º, III; Decreto 11.462/2023, art. 31, § 1º"
+    }
+  ],
+  "limites_legais": {
+    "_comentario": "Valores do Anexo do Decreto 12.807/2025 (vigência 01/01/2026), conferidos no texto do Planalto em 02/10/2026. O art. 3º do decreto delega a atualização anual ao MGI: ATUALIZE este bloco a cada exercício.",
+    "ano": 2026,
+    "decreto": "Decreto 12.807/2025",
+    "art75_i": "130984.20",
+    "art75_ii": "65492.11",
+    "art75_par7": "10478.74",
+    "art95_par2": "13098.41"
+  }
+}

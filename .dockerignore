@@ -1,0 +1,16 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.git
+.gitignore
+tests/
+saida/*.pdf
+saida/*.docx
+anexos/*
+dados/nc/*
+dados/ne/*
+.env
+*.bat
+CLAUDE.md

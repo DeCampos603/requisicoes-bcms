@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Requisições de Empenho — BCMS</title>
+  <meta name="reqemp-token" content="__TOKEN__">
+  <meta name="description" content="Gera DIEx de requisição, reforço e anulação de empenho do BCMS, com validação contra as bases do repositório.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#10303f" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0a1419" media="(prefers-color-scheme: dark)">
+  <link rel="icon" type="image/png" href="/static/img/brasao-bcms-64.png">
+  <script src="/static/tema.js"></script>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topo">
+    <div class="marca">
+      <img src="/static/img/brasao-bcms.png" alt="Brasão do Batalhão Central de Manutenção e Suprimento" width="43" height="60">
+      <h1>Requisições de Empenho <small id="subtitulo">BCMS · Lei 14.133/2021</small></h1>
+    </div>
+    <div class="chips" id="chips" aria-label="Situação das bases de dados"></div>
+    <div class="acoes">
+      <div class="indicador-autosave" id="indicador-autosave" aria-live="polite" title="Persistência automática local ativada">
+        <span class="ponto-salvo" aria-hidden="true"></span>
+        <span id="texto-autosave">Rascunho salvo</span>
+      </div>
+      <button type="button" class="btn-topo" id="btn-autoridades" title="Configurar Ordenador de Despesas e Fiscal Administrativo">Autoridades (OD / Fiscal)</button>
+      <button type="button" class="btn-topo" id="btn-tema" title="Alternar entre tema automático (do sistema), claro e escuro">Tema: automático</button>
+      <button type="button" class="btn-topo" id="btn-atualizar" title="Reimporta NE, NC, saldos de crédito, pregões e PCA do repositório">Atualizar dados</button>
+    </div>
+  </header>
+
+  <div id="banner-defasagem" class="alerta-defasagem" role="alert" hidden>
+    <div class="alerta-defasagem-conteudo">
+      <span class="alerta-defasagem-icone" aria-hidden="true">⚠️</span>
+      <div>
+        <strong>Atenção: Base de dados com defasagem identificada</strong>
+        <p id="texto-defasagem"></p>
+      </div>
+    </div>
+    <button type="button" class="btn btn-topo" id="btn-atualizar-banner" title="Reimportar bases agora">Atualizar dados agora</button>
+  </div>
+
+  <nav class="abas" role="tablist" aria-label="Tipo de documento">
+    <button class="aba" role="tab" id="aba-requisicao" aria-selected="true" aria-controls="painel-form" data-tipo="requisicao">Requisição de empenho</button>
+    <button class="aba" role="tab" id="aba-reforco" aria-selected="false" aria-controls="painel-form" data-tipo="reforco">Reforço de empenho</button>
+    <button class="aba" role="tab" id="aba-anulacao" aria-selected="false" aria-controls="painel-form" data-tipo="anulacao">Anulação de empenho</button>
+    <button class="aba" role="tab" id="aba-contratos" aria-selected="false" aria-controls="painel-form" data-tipo="contratos">Contratos vigentes <span class="badge-aba" id="badge-total-contratos">24</span></button>
+    <button class="aba" role="tab" id="aba-historico" aria-selected="false" aria-controls="painel-form" data-tipo="historico">Acompanhamento & SLA <span class="badge-aba badge-aba-tramitacao" id="badge-total-tramitacao">0</span></button>
+  </nav>
+
+  <main class="layout" id="painel-form" role="tabpanel">
+    <form id="formulario" novalidate autocomplete="off" aria-label="Formulário do documento"></form>
+    <aside class="painel" aria-label="Conferência e prévia do documento">
+      <div class="abas-painel" id="abas-painel" role="tablist" aria-label="Painel lateral">
+        <button type="button" class="aba-painel" role="tab" id="pt-conf" aria-selected="true" aria-controls="conferencia" data-painel="conf">Conferência <span class="selo" id="pt-conf-n" hidden></span></button>
+        <button type="button" class="aba-painel" role="tab" id="pt-previa" aria-selected="false" aria-controls="previa-viva" data-painel="previa">Prévia do DIEx</button>
+      </div>
+      <section class="cartao" id="previa-viva" aria-labelledby="pt-previa" hidden>
+        <div class="previa-topo">
+          <div class="contadores" id="previa-contadores"></div>
+          <button type="button" class="btn-primario" id="btn-gerar-3" disabled>Gerar PDF</button>
+        </div>
+        <p class="ajuda" id="previa-estado" aria-live="polite"></p>
+        <div class="previa-paginas" id="previa-paginas"></div>
+        <p class="ajuda" style="margin-top:8px">Rascunho: é o mesmo texto e a mesma diagramação do PDF, com o que falta destacado em amarelo. Só o botão "Gerar PDF" produz o documento válido.</p>
+      </section>
+      <section class="cartao" id="conferencia" aria-live="polite">
+        <h2>Conferência</h2>
+        <div class="contadores" id="contadores"></div>
+        <div id="total-geral" class="total-geral" hidden></div>
+        <ul class="achados" id="achados"></ul>
+        <div class="linha-botoes">
+          <button type="button" class="btn-primario" id="btn-gerar" disabled>Gerar PDF</button>
+        </div>
+        <p class="ajuda" id="ajuda-gerar" style="color:var(--muted);font-size:.85rem;margin-top:8px"></p>
+      </section>
+      <section class="cartao resultado-geracao" id="resultado" hidden></section>
+    </aside>
+  </main>
+
+  <footer class="rodape-sistema" role="contentinfo" aria-label="Informações institucionais e créditos do sistema">
+    <div class="rodape-conteudo">
+      <div class="rodape-coluna rodape-coluna-dev">
+        <div class="rodape-marca">
+          <img src="/static/img/brasao-bcms.png" alt="Brasão do BCMS" width="36" height="50" loading="lazy">
+          <div>
+            <h3>Requisições de Empenho</h3>
+            <span class="subtitulo-om">BCMS · Batalhão Marechal Dutra</span>
+          </div>
+        </div>
+        <div class="card-autor">
+          <div class="autor-icone" aria-hidden="true">🎖️</div>
+          <div class="autor-info">
+            <span class="autor-rotulo">Desenvolvido por:</span>
+            <strong class="autor-nome">3º Sgt Alexandre DE CAMPOS Bunn Junior</strong>
+            <span class="autor-cargo">Engenharia de Software & Automação de Processos</span>
+          </div>
+        </div>
+        <p class="rodape-desc">
+          Sistema corporativo de emissão de Documentos Internos do Exército (DIEx), controle de empenhos,
+          reforços, anulações e conformidade orçamentária segundo as diretrizes do Comando do Exército.
+        </p>
+      </div>
+
+      <div class="rodape-coluna">
+        <h4>🏛️ Unidade Militar</h4>
+        <ul class="lista-rodape">
+          <li><strong>Organização:</strong> Batalhão Central de Manutenção e Suprimento</li>
+          <li><strong>Comando Superior:</strong> COLOG / Ba Ap Log do Exército</li>
+          <li><strong>UASG Principal:</strong> <code>160329</code> (Recursos OGU)</li>
+          <li><strong>UG Vinculada:</strong> <code>167329</code> (Fundo do Exército - FEx)</li>
+          <li><strong>Guarnição:</strong> Rio de Janeiro - RJ</li>
+        </ul>
+      </div>
+
+      <div class="rodape-coluna">
+        <h4>⚖️ Base Normativa</h4>
+        <ul class="lista-rodape">
+          <li><span class="tag-norma">Lei 14.133/2021</span> Nova Lei de Licitações e Contratos</li>
+          <li><span class="tag-norma">Decreto 11.462/2023</span> Sistema de Registro de Preços</li>
+          <li><span class="tag-norma">IG 12-02</span> Instruções Gerais p/ Correspondência do EB</li>
+          <li><span class="tag-norma">Lei Complementar 101/00</span> Lei de Responsabilidade Fiscal</li>
+        </ul>
+      </div>
+
+      <div class="rodape-coluna">
+        <h4>🌐 Portais & Sistemas Oficiais</h4>
+        <ul class="lista-links">
+          <li>
+            <a href="https://www.gov.br/compras/pt-br" target="_blank" rel="noopener noreferrer">
+              <span>Compras.gov.br (Comprasnet)</span>
+              <span class="seta-externa" aria-hidden="true">↗</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://www.gov.br/pncp/pt-br" target="_blank" rel="noopener noreferrer">
+              <span>Portal Nacional de Contratações (PNCP)</span>
+              <span class="seta-externa" aria-hidden="true">↗</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://tesourogerencial.tesouro.gov.br" target="_blank" rel="noopener noreferrer">
+              <span>Tesouro Gerencial (SIAFI)</span>
+              <span class="seta-externa" aria-hidden="true">↗</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://portaldatransparencia.gov.br" target="_blank" rel="noopener noreferrer">
+              <span>Portal da Transparência</span>
+              <span class="seta-externa" aria-hidden="true">↗</span>
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="rodape-base">
+      <div class="rodape-base-esquerda">
+        <span>© 2026 Batalhão Central de Manutenção e Suprimento · Exército Brasileiro</span>
+        <span class="divisor" aria-hidden="true">·</span>
+        <span>Todos os direitos reservados</span>
+      </div>
+      <div class="rodape-base-direita">
+        <span class="badge-tecnica">WCAG 2.2 AA</span>
+        <span class="badge-tecnica">FastAPI + Cloud Run</span>
+        <span class="badge-tecnica">v2.2.0</span>
+      </div>
+    </div>
+  </footer>
+
+  <div class="barra-fixa" id="barra-fixa">
+    <span id="barra-resumo" aria-live="polite"></span>
+    <button type="button" class="btn-primario" id="btn-gerar-2" disabled>Gerar PDF</button>
+  </div>
+
+  <dialog id="dlg-itens" aria-labelledby="dlg-itens-t">
+    <header class="dlg"><h2 id="dlg-itens-t">Itens do pregão</h2><button type="button" id="dlg-itens-x" aria-label="Fechar">Fechar</button></header>
+    <div class="corpo" id="dlg-itens-corpo"></div>
+  </dialog>
+  <dialog id="dlg-previa" aria-labelledby="dlg-previa-t">
+    <header class="dlg"><h2 id="dlg-previa-t">Pré-visualização</h2>
+      <span class="linha-botoes" style="margin:0"><a class="btn" id="previa-abrir" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center">Abrir em nova aba</a>
+      <button type="button" id="dlg-previa-x" aria-label="Fechar">Fechar</button></span></header>
+    <div class="corpo" id="previa-corpo" aria-live="polite"></div>
+  </dialog>
+
+  <dialog id="dlg-autoridades" aria-labelledby="dlg-autoridades-t">
+    <header class="dlg">
+      <h2 id="dlg-autoridades-t">Autoridades do BCMS (OD e Fiscal)</h2>
+      <button type="button" id="dlg-autoridades-x" aria-label="Fechar">Fechar</button>
+    </header>
+    <div class="corpo" id="dlg-autoridades-corpo">
+      <p class="ajuda" style="margin-bottom:14px">Atualize os responsáveis que assinam a aprovação (Fiscal Administrativo) e o despacho da requisição (Ordenador de Despesas). As alterações ficam salvas como padrão do sistema.</p>
+      <form id="form-autoridades" novalidate>
+        <fieldset class="bloco-autoridade" style="border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:14px">
+          <legend style="padding:0 8px;font-weight:700;color:var(--primary)">Fiscal Administrativo</legend>
+          <div class="grade">
+            <div class="campo"><label for="aut-fisc-posto">Posto / Graduação</label><input type="text" id="aut-fisc-posto" required placeholder="Ex.: Cap"></div>
+            <div class="campo largo"><label for="aut-fisc-nome">Nome Completo</label><input type="text" id="aut-fisc-nome" required placeholder="Ex.: LUIS HENRIQUE ARAÚJO FOWLER"></div>
+            <div class="campo largo"><label for="aut-fisc-funcao">Função</label><input type="text" id="aut-fisc-funcao" required placeholder="Ex.: Fiscal Administrativo"></div>
+          </div>
+        </fieldset>
+        <fieldset class="bloco-autoridade" style="border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:14px">
+          <legend style="padding:0 8px;font-weight:700;color:var(--primary)">Ordenador de Despesas (OD)</legend>
+          <div class="grade">
+            <div class="campo"><label for="aut-od-posto">Posto / Graduação</label><input type="text" id="aut-od-posto" required placeholder="Ex.: Cel"></div>
+            <div class="campo largo"><label for="aut-od-nome">Nome Completo</label><input type="text" id="aut-od-nome" required placeholder="Ex.: WANDERCLEIDSON DA SILVA RODRIGUES"></div>
+            <div class="campo largo"><label for="aut-od-funcao">Função</label><input type="text" id="aut-od-funcao" required placeholder="Ex.: Ordenador de Despesas"></div>
+          </div>
+        </fieldset>
+        <div class="linha-botoes" style="justify-content:flex-end">
+          <button type="button" class="btn" id="aut-cancelar">Cancelar</button>
+          <button type="submit" class="btn btn-primario" id="aut-salvar">Salvar Alterações</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-contrato-ne" aria-labelledby="dlg-contrato-ne-t">
+    <header class="dlg">
+      <h2 id="dlg-contrato-ne-t">Notas de Empenho do Contrato</h2>
+      <button type="button" id="dlg-contrato-ne-x" aria-label="Fechar">Fechar</button>
+    </header>
+    <div class="corpo" id="dlg-contrato-ne-corpo"></div>
+  </dialog>
+
+  <!-- Modal / Bottom Sheet: Detalhes da Requisição & Timeline de Tramitação -->
+  <dialog id="dlg-detalhes-req" class="dlg-bottom-sheet" aria-labelledby="dlg-detalhes-req-t">
+    <div class="puxador-sheet" aria-hidden="true"></div>
+    <header class="dlg">
+      <div class="dlg-detalhes-topo">
+        <h2 id="dlg-detalhes-req-t">Tramitação da Requisição</h2>
+        <div id="dlg-detalhes-badges" class="dlg-detalhes-badges"></div>
+      </div>
+      <button type="button" id="dlg-detalhes-req-x" class="btn-fechar-dlg" aria-label="Fechar detalhes da requisição">✕</button>
+    </header>
+    <div class="corpo" id="dlg-detalhes-req-corpo" aria-live="polite"></div>
+  </dialog>
+
+  <!-- Modal / Bottom Sheet: Recusa com Justificativa Técnica Obrigatória -->
+  <dialog id="dlg-recusa-req" class="dlg-bottom-sheet" aria-labelledby="dlg-recusa-req-t">
+    <div class="puxador-sheet" aria-hidden="true"></div>
+    <header class="dlg">
+      <h2 id="dlg-recusa-req-t">⚠️ Recusar Requisição — Justificativa Obrigatória</h2>
+      <button type="button" id="dlg-recusa-req-x" class="btn-fechar-dlg" aria-label="Cancelar recusa">✕</button>
+    </header>
+    <div class="corpo">
+      <div class="dica alerta" style="margin-bottom:14px">
+        <strong>Fundamentação Obrigatória:</strong> A Lei 14.133/2021 e as normas de governança vedam reprovações sumárias ou sem motivação expressa. Informe detalhadamente o motivo técnico, orçamentário ou legal da recusa.
+      </div>
+      <form id="form-recusa-req" novalidate>
+        <input type="hidden" id="recusa-req-id" value="">
+        <div class="campo largo">
+          <label for="recusa-justificativa">Justificativa Técnica do Despacho (mínimo 15 caracteres) <span class="campo-obrig">*</span></label>
+          <textarea id="recusa-justificativa" required minlength="15" maxlength="600" rows="4" placeholder="Ex.: A dotação orçamentária informada na NC 2026NC415767 é insuficiente para cobrir o quantitativo total solicitado, ou item não aderente ao PCA vigente do BCMS..."></textarea>
+          <div class="linha-contagem-caracteres">
+            <span class="ajuda" id="recusa-caracteres">0 / 600 caracteres (mínimo 15)</span>
+            <span class="msg" id="recusa-msg"></span>
+          </div>
+        </div>
+        <div class="linha-botoes" style="justify-content:flex-end;margin-top:16px">
+          <button type="button" class="btn" id="btn-cancelar-recusa">Cancelar</button>
+          <button type="submit" class="btn btn-perigo-solido" id="btn-confirmar-recusa">Confirmar Recusa com Justificativa</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

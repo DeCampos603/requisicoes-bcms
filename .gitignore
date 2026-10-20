@@ -1,0 +1,9 @@
+# Dados gerados a partir de documentos do SIAFI (favorecidos, valores, CPF parcialmente mascarado):
+# nunca versionar nem publicar.
+dados/
+saida/
+anexos/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.tmp

@@ -1,0 +1,42 @@
+{
+  "_comentario": "Identidade do BCMS e autoridades que assinam os despachos. Atualize quando houver troca de Fiscal Administrativo ou de Ordenador de Despesas. Nomes lidos dos DIEx modelo e das NE de set/2026.",
+  "uasg_propria": "160329",
+  "ugs_executoras": {
+    "160329": {
+      "rotulo": "OGU",
+      "descricao": "BCMS - recursos do Orçamento Geral da União"
+    },
+    "167329": {
+      "rotulo": "FEx",
+      "descricao": "BCMS - recursos do Fundo do Exército"
+    }
+  },
+  "cabecalho": [
+    "MINISTÉRIO DA DEFESA",
+    "EXÉRCITO BRASILEIRO",
+    "COLOG          Ba Ap Log",
+    "BATALHÃO CENTRAL DE MANUTENÇÃO E SUPRIMENTO",
+    "(Batalhão Marechal Dutra)"
+  ],
+  "nome_om": "BATALHÃO CENTRAL DE MANUTENÇÃO E SUPRIMENTO",
+  "sigla_om": "BCMS",
+  "cidade": "Rio de Janeiro-RJ",
+  "destinatario": "Ao Sr Fiscal Administrativo do BCMS",
+  "papel": "A4",
+  "layout_diex": "novo",
+  "fiscal_administrativo": {
+    "nome": "LUIS HENRIQUE ARAÚJO FOWLER",
+    "posto": "Cap",
+    "funcao": "Fiscal Administrativo"
+  },
+  "ordenador_despesas": {
+    "nome": "WANDERCLEIDSON DA SILVA RODRIGUES",
+    "posto": "Cel",
+    "funcao": "Ordenador de Despesas"
+  },
+  "pca": {
+    "_comentario": "PCA do BCMS publicado pelo Comando do Exército (CNPJ do órgão) no PGC/PNCP; consultado pela API de dados abertos do Compras.gov.br.",
+    "orgao_cnpj": "00394452000103",
+    "uasg": "160329"
+  }
+}
