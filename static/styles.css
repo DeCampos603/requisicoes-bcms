@@ -1328,12 +1328,40 @@ body {
   .grade {
     grid-template-columns: 1fr;
   }
+  /* Card Individual de Item no Mobile (Touch Target >= 48px, Zero Overflow) */
+  .forn {
+    margin-bottom: 16px;
+    border-radius: var(--radius);
+  }
   .item {
-    grid-template-columns: 1fr;
-    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px;
+    margin: 8px 10px 12px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  }
+  .item .desc {
+    width: 100%;
   }
   .item .linha-valores {
-    grid-template-columns: 1fr;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .item .linha-valores .campo[data-campo*=".valor_total"] {
+    grid-column: 1 / -1;
+  }
+  .item .linha-valores .campo:last-child {
+    grid-column: 1 / -1;
+  }
+  .item .linha-valores .campo > button[data-rm-item] {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
   }
   .opcoes {
     gap: 4px 12px;
@@ -1392,30 +1420,59 @@ body {
 }
 
 /* ==========================================================================
-   STEPPER COGNITIVO DO FORMULÁRIO (4 BLOCOS)
-   1. Solicitante & Setor -> 2. Itens Solicitados -> 3. Justificativa & Anexos -> 4. Revisão
+   MULTI-STEP WIZARD EM 5 ETAPAS ISOLADAS (REQUISIÇÃO BCMS)
+   1. DIEx & Solicitante -> 2. NC/SIAFI -> 3. Pregão & PCA -> 4. Itens -> 5. Revisão & Emissão
+   ========================================================================== */
+
+.wizard-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+/* Isolamento estrito de etapas: apenas a etapa ativa é exibida */
+.etapa-wizard {
+  display: none;
+}
+
+.etapa-wizard.ativa {
+  display: block;
+  animation: etapaFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity, transform;
+}
+
+@keyframes etapaFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   STEPPER COGNITIVO EM 5 PASSOS (DESKTOP & MOBILE COMPACTO)
    ========================================================================== */
 .stepper-cognitivo {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 12px 14px;
   margin-bottom: var(--gap);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-@media (max-width: 840px) {
-  .stepper-cognitivo {
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-  }
+
+/* Grid com 5 colunas no Desktop */
+.stepper-passos-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
 }
-@media (max-width: 480px) {
-  .stepper-cognitivo {
-    grid-template-columns: 1fr;
-  }
-}
+
 .passo-cognitivo {
   display: flex;
   align-items: center;
@@ -1424,41 +1481,58 @@ body {
   border-radius: 8px;
   background: var(--surface-2);
   border: 1px solid transparent;
-  transition: all 0.2s ease;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
 }
+
+.passo-cognitivo:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
 .passo-cognitivo.ativo {
   background: var(--primary-soft);
   border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
 }
+
 .passo-cognitivo.concluido {
   background: var(--ok-bg);
   border-color: var(--ok);
 }
+
 .passo-num {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: var(--muted);
   color: #fff;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-weight: 700;
   display: grid;
   place-items: center;
   flex: none;
+  transition: transform 0.18s ease, background 0.18s ease;
 }
+
 .passo-cognitivo.ativo .passo-num {
   background: var(--primary);
   color: var(--primary-ink);
+  transform: scale(1.06);
 }
+
 .passo-cognitivo.concluido .passo-num {
   background: var(--ok);
   color: #fff;
 }
+
 .passo-info {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
+
 .passo-titulo {
   font-size: 0.82rem;
   font-weight: 700;
@@ -1467,12 +1541,264 @@ body {
   text-overflow: ellipsis;
   color: var(--text);
 }
+
 .passo-sub {
   font-size: 0.72rem;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Stepper Mobile Header (Barra Linear + Indicador Compacto) */
+.stepper-mobile-header {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stepper-mobile-progresso-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--line-light);
+}
+
+.stepper-mobile-progresso-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--ouro), var(--primary));
+  border-radius: 999px;
+  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stepper-mobile-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stepper-mobile-badge {
+  background: var(--primary);
+  color: var(--primary-ink);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.stepper-mobile-nome {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Breakpoint do Stepper no Smartphone (<= 768px) */
+@media (max-width: 768px) {
+  .stepper-mobile-header {
+    display: flex;
+  }
+  .stepper-passos-grid {
+    display: flex;
+    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+    justify-content: space-between;
+  }
+  .stepper-passos-grid .passo-info {
+    display: none;
+  }
+  .stepper-passos-grid .passo-cognitivo {
+    padding: 6px;
+    border-radius: 50%;
+    min-height: 40px;
+    min-width: 40px;
+    justify-content: center;
+  }
+}
+
+/* ==========================================================================
+   STICKY BOTTOM ACTION BAR (ZONA DO POLEGAR - 48x48px TOUCH TARGET)
+   ========================================================================== */
+.wizard-barra-acoes {
+  position: sticky;
+  bottom: 0;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-top: var(--gap);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.btn-wizard-voltar {
+  min-height: 48px;
+  min-width: 48px;
+  padding: 10px 18px;
+  font-weight: 600;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+}
+
+.btn-wizard-voltar:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.wizard-indicador-passo {
+  font-size: 0.86rem;
+  color: var(--muted);
+  user-select: none;
+}
+
+.wizard-passo-txt strong {
+  color: var(--primary);
+  font-size: 0.95rem;
+}
+
+.btn-wizard-avancar {
+  min-height: 48px;
+  min-width: 48px;
+  padding: 10px 22px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  background: var(--primary);
+  color: var(--primary-ink);
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+}
+
+.btn-wizard-avancar:hover {
+  background: var(--primary-hover);
+}
+
+.wizard-acoes-finais {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wizard-acoes-finais .btn {
+  min-height: 48px;
+  padding: 10px 16px;
+}
+
+@media (max-width: 768px) {
+  .wizard-barra-acoes {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    border-radius: 16px 16px 0 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.16);
+    background: var(--surface);
+    z-index: 40;
+  }
+  .etapa-wizard {
+    padding-bottom: 84px;
+  }
+}
+
+/* ==========================================================================
+   PAINEL DE CONFERÊNCIA INTEGRADO NA ETAPA 5 (REVISÃO GERAL)
+   ========================================================================== */
+.painel-conferencia-etapa5 {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: var(--radius);
+}
+
+.grid-resumo-requisicao {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.card-resumo-item {
+  background: var(--surface-2);
+  border: 1px solid var(--line-light);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.resumo-rotulo {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+
+.resumo-val {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resumo-sub {
+  font-size: 0.78rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linha-botoes-emissao {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.linha-botoes-emissao .btn {
+  flex: 1 1 200px;
+  min-height: 48px;
+  font-size: 0.95rem;
+}
+
+/* ==========================================================================
+   RESPONSIVIDADE: DESATIVAÇÃO DO ASIDE LATERAL NO MOBILE
+   ========================================================================== */
+@media (max-width: 900px) {
+  .layout.com-wizard {
+    grid-template-columns: 1fr !important;
+  }
+  .layout.com-wizard .painel {
+    display: none !important;
+  }
+  .layout.com-wizard ~ .barra-fixa {
+    display: none !important;
+  }
 }
 
 /* ==========================================================================

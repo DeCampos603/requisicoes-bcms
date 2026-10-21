@@ -461,35 +461,331 @@ function renderFonte() {
   };
 }
 
-// ---------------------------------------------------------------- stepper cognitivo (4 etapas)
+// ---------------------------------------------------------------- WIZARD EM 5 ETAPAS ISOLADAS (REQUISIÇÃO BCMS)
+let etapaAtual = (() => {
+  try {
+    const salva = parseInt(localStorage.getItem('reqemp.etapa.requisicao') || '1', 10);
+    return salva >= 1 && salva <= 5 ? salva : 1;
+  } catch {
+    return 1;
+  }
+})();
+
+const NOMES_ETAPAS = {
+  1: 'DIEx & Solicitante',
+  2: 'Fonte de Recurso & SIAFI',
+  3: 'Licitação & PCA',
+  4: 'Itens & Quantidades',
+  5: 'Revisão & Emissão',
+};
+
+function nomeEtapa(n) {
+  return NOMES_ETAPAS[n] || `Etapa ${n}`;
+}
+
+function renderBarraAcoesEtapa(etapa, textoAvancar) {
+  const isPrimeira = etapa === 1;
+  const isUltima = etapa === 5;
+  return `<div class="wizard-barra-acoes">
+    <button type="button" class="btn btn-wizard-voltar" ${isPrimeira ? 'disabled' : ''} data-acao="voltar" aria-label="Voltar para a etapa anterior">
+      <span aria-hidden="true">‹</span> Voltar
+    </button>
+    <div class="wizard-indicador-passo">
+      <span class="wizard-passo-txt">Etapa <strong>${etapa}</strong> de 5</span>
+    </div>
+    ${isUltima ? `
+      <div class="wizard-acoes-finais">
+        <button type="button" class="btn btn-secundario btn-word" id="btn-gerar-word-bar" title="Gera o documento editável em formato Microsoft Word (.docx), sempre liberado"><span>📝</span> Gerar Word</button>
+        <button type="button" class="btn btn-primario btn-wizard-avancar" data-acao="emitir-pdf" id="btn-avancar-etapa5">Gerar PDF</button>
+      </div>
+    ` : `
+      <button type="button" class="btn btn-primario btn-wizard-avancar" data-acao="avancar" aria-label="${esc(textoAvancar)}">
+        ${esc(textoAvancar)}
+      </button>
+    `}
+  </div>`;
+}
+
+function validarEtapa(numeroEtapa) {
+  const st = estados.requisicao;
+  if (!st) return false;
+
+  if (numeroEtapa === 1) {
+    const cab = st.cabecalho || {};
+    const req = cab.requisitante || {};
+    if (!cab.diex || !cab.diex.trim()) {
+      const el = $('[data-bind="cabecalho.diex"]');
+      if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+      toast('Informe o Nº do DIEx (SPED) para avançar.');
+      return false;
+    }
+    if (!cab.nup || !cab.nup.trim()) {
+      const el = $('[data-bind="cabecalho.nup"]');
+      if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+      toast('Informe o NUP do processo administrativo.');
+      return false;
+    }
+    if (!cab.data) {
+      const el = $('[data-bind="cabecalho.data"]');
+      if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+      toast('Informe a data do documento.');
+      return false;
+    }
+    if (!req.posto) {
+      const el = $('[data-bind="cabecalho.requisitante.posto"]');
+      if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+      toast('Selecione o posto/graduação do requisitante.');
+      return false;
+    }
+    if (!req.nome || req.nome.trim().length < 3) {
+      const el = $('[data-bind="cabecalho.requisitante.nome"]');
+      if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+      toast('Informe o nome completo do requisitante.');
+      return false;
+    }
+    if (!req.funcao || !req.funcao.trim()) {
+      const el = $('[data-bind="cabecalho.requisitante.funcao"]');
+      if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+      toast('Informe a função do requisitante.');
+      return false;
+    }
+    return true;
+  }
+
+  if (numeroEtapa === 2) {
+    const fte = st.fonte || {};
+    if (!fte.nc || !fte.nc.trim()) {
+      const el = $('[data-bind="fonte.nc"]');
+      if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+      toast('Informe ou pesquise o número da Nota de Crédito (NC).');
+      return false;
+    }
+    const v = ultimo.requisicao;
+    const r = v?.resumo?.fonte;
+    const achadosFonte = (v?.achados || []).filter((a) => a.campo.startsWith('fonte') && a.nivel === 'ERRO');
+    const erroUpload = achadosFonte.find((a) => a.acao === 'upload_nc');
+    if (erroUpload) {
+      toast('A Nota de Crédito precisa estar no repositório. Selecione uma NC válida ou envie o PDF.');
+      return false;
+    }
+    if (r?.candidatas && !fte.emitente) {
+      toast('Selecione a UG emitente da Nota de Crédito.');
+      return false;
+    }
+    if (r?.escolher_celula && (fte.celula === '' || fte.celula == null)) {
+      toast('Selecione a célula de destino da NC antes de avançar.');
+      return false;
+    }
+    if (r?.indetalhada && !fte.nd_destino) {
+      toast('A NC possui crédito indetalhado. Selecione a ND de destino para o detalhamento.');
+      return false;
+    }
+    return true;
+  }
+
+  if (numeroEtapa === 3) {
+    if (st.modalidade === 'PREGAO') {
+      const temPregao = Boolean(st.licitacao.pregao_id || (st.licitacao.manual && st.licitacao.manual.numero && st.licitacao.manual.numero.trim()));
+      if (!temPregao) {
+        const inp = $('#busca-pregao');
+        if (inp) { inp.focus(); inp.closest('.campo')?.classList.add('invalido'); }
+        toast('Selecione um pregão vigente ou cadastre o pregão.');
+        return false;
+      }
+    } else if (st.modalidade === 'DISPENSA' || st.modalidade === 'INEXIGIBILIDADE' || st.modalidade === 'CONTRATO') {
+      if (!st.licitacao.numero || !st.licitacao.numero.trim()) {
+        const el = $('[data-bind="licitacao.numero"]');
+        if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+        toast(`Informe o número de identificação da modalidade ${st.modalidade}.`);
+        return false;
+      }
+    }
+
+    const pca = st.pca || {};
+    if (pca.consta === false || pca.consta === 'false') {
+      if (!pca.justificativa || pca.justificativa.trim().length < 15) {
+        const el = $('[data-bind="pca.justificativa"]');
+        if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+        toast('A contratação fora do PCA exige justificativa técnica de no mínimo 15 caracteres.');
+        return false;
+      }
+    } else {
+      if (!pca.contratacao && !pca.classe) {
+        const el = $('[data-bind="pca.contratacao"]') || $('#pca-busca');
+        if (el) el.focus();
+        toast('Informe o Nº da contratação no PCA ou selecione uma classe do catálogo.');
+        return false;
+      }
+    }
+
+    if (!st.tipo_empenho) {
+      toast('Selecione o tipo de empenho (Ordinário, Estimativo ou Global).');
+      return false;
+    }
+
+    return true;
+  }
+
+  if (numeroEtapa === 4) {
+    const totalItens = (st.fornecedores || []).reduce((acc, f) => acc + (f.itens || []).length, 0);
+    if (totalItens === 0) {
+      toast('Adicione pelo menos um item da ata ou manual para prosseguir.');
+      return false;
+    }
+
+    for (let fi = 0; fi < st.fornecedores.length; fi++) {
+      const f = st.fornecedores[fi];
+      if (f._manual && (!f.cnpj || !f.cnpj.trim())) {
+        toast(`Informe o CNPJ do fornecedor ${fi + 1}.`);
+        return false;
+      }
+      for (let ii = 0; ii < f.itens.length; ii++) {
+        const it = f.itens[ii];
+        const qtde = parseDec(it.qtde);
+        const valorUnit = parseDec(it.valor_unit);
+        if (!it.descricao || !it.descricao.trim()) {
+          toast(`Preencha a descrição do item ${ii + 1}.`);
+          return false;
+        }
+        if (qtde == null || qtde <= 0) {
+          const el = $(`[data-bind="fornecedores[${fi}].itens[${ii}].qtde"]`);
+          if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+          toast(`Informe uma quantidade válida maior que zero para o item ${it.item || ii + 1}.`);
+          return false;
+        }
+        if (valorUnit == null || valorUnit <= 0) {
+          const el = $(`[data-bind="fornecedores[${fi}].itens[${ii}].valor_unit"]`);
+          if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+          toast(`Informe o valor unitário do item ${it.item || ii + 1}.`);
+          return false;
+        }
+        if (it._saldo != null && it._saldo !== '') {
+          const saldo = parseDec(it._saldo);
+          if (saldo != null && qtde > saldo) {
+            const el = $(`[data-bind="fornecedores[${fi}].itens[${ii}].qtde"]`);
+            if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+            toast(`Quantidade do item ${it.item} (${it.qtde}) ultrapassa o saldo disponível na ata (${it._saldo}).`);
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  if (numeroEtapa === 5) {
+    const fin = st.finalidade || {};
+    if (!fin.id) {
+      const el = $('[data-bind="finalidade.id"]');
+      if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+      toast('Selecione a finalidade da aquisição.');
+      return false;
+    }
+    if (fin.id === 'OUTRA' && (!fin.outra || fin.outra.trim().length < 15)) {
+      const el = $('[data-bind="finalidade.outra"]');
+      if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+      toast('Descreva a finalidade detalhada (mínimo de 15 caracteres).');
+      return false;
+    }
+    return true;
+  }
+
+  return true;
+}
+
+function mudarParaEtapa(novaEtapa, forcar = false) {
+  if (novaEtapa < 1 || novaEtapa > 5) return;
+  if (!forcar && novaEtapa > etapaAtual) {
+    for (let e = etapaAtual; e < novaEtapa; e++) {
+      if (!validarEtapa(e)) return;
+    }
+  }
+
+  etapaAtual = novaEtapa;
+  try { localStorage.setItem('reqemp.etapa.requisicao', String(etapaAtual)); } catch { /* ignore */ }
+
+  $$('.etapa-wizard').forEach((el) => {
+    const step = Number(el.dataset.step);
+    el.classList.toggle('ativa', step === etapaAtual);
+  });
+
+  atualizarStepperVisual();
+
+  const form = $('#formulario');
+  if (form) {
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  if (etapaAtual === 5) {
+    atualizarPainelEtapa5();
+  }
+
+  salvarRascunho();
+  agendar(true);
+}
+
+function avancarEtapa() {
+  if (validarEtapa(etapaAtual)) {
+    if (etapaAtual < 5) {
+      mudarParaEtapa(etapaAtual + 1);
+    } else {
+      gerar();
+    }
+  }
+}
+
+function voltarEtapa() {
+  if (etapaAtual > 1) {
+    mudarParaEtapa(etapaAtual - 1, true);
+  }
+}
+
 function renderStepperCognitivo() {
   return `<nav class="stepper-cognitivo" id="stepper-requisicao" aria-label="Progresso das etapas da Requisição">
-    <div class="passo-cognitivo ativo" id="passo-1" data-passo="1" role="button" tabindex="0" title="Ir para Identificação do Solicitante e Setor">
-      <div class="passo-num">1</div>
-      <div class="passo-info">
-        <span class="passo-titulo">1. Solicitante & Setor</span>
-        <span class="passo-sub" id="passo-1-sub">DIEx, NUP e Requisitante</span>
+    <div class="stepper-mobile-header">
+      <div class="stepper-mobile-progresso-bar">
+        <div class="stepper-mobile-progresso-fill" id="stepper-progresso-fill" style="width: ${(etapaAtual / 5) * 100}%;"></div>
+      </div>
+      <div class="stepper-mobile-info">
+        <span class="stepper-mobile-badge" id="stepper-mobile-etapa-txt">Etapa ${etapaAtual} de 5</span>
+        <span class="stepper-mobile-nome" id="stepper-mobile-nome-txt">${nomeEtapa(etapaAtual)}</span>
       </div>
     </div>
-    <div class="passo-cognitivo" id="passo-2" data-passo="2" role="button" tabindex="0" title="Ir para Itens e Fornecedores">
-      <div class="passo-num">2</div>
-      <div class="passo-info">
-        <span class="passo-titulo">2. Itens Solicitados</span>
-        <span class="passo-sub" id="passo-2-sub">Itens e valores BRL</span>
+    <div class="stepper-passos-grid">
+      <div class="passo-cognitivo ${etapaAtual === 1 ? 'ativo' : ''}" id="passo-1" data-passo="1" role="button" tabindex="0" title="1. DIEx & Solicitante">
+        <div class="passo-num">1</div>
+        <div class="passo-info">
+          <span class="passo-titulo">1. DIEx & Solicitante</span>
+          <span class="passo-sub" id="passo-1-sub">DIEx, NUP e Requisitante</span>
+        </div>
       </div>
-    </div>
-    <div class="passo-cognitivo" id="passo-3" data-passo="3" role="button" tabindex="0" title="Ir para Justificativa e Anexos">
-      <div class="passo-num">3</div>
-      <div class="passo-info">
-        <span class="passo-titulo">3. Justificativa & Anexos</span>
-        <span class="passo-sub" id="passo-3-sub">Finalidade, PCA e NC</span>
+      <div class="passo-cognitivo ${etapaAtual === 2 ? 'ativo' : ''}" id="passo-2" data-passo="2" role="button" tabindex="0" title="2. NC / SIAFI">
+        <div class="passo-num">2</div>
+        <div class="passo-info">
+          <span class="passo-titulo">2. NC / SIAFI</span>
+          <span class="passo-sub" id="passo-2-sub">Nota de Crédito e Saldo</span>
+        </div>
       </div>
-    </div>
-    <div class="passo-cognitivo" id="passo-4" data-passo="4" role="button" tabindex="0" title="Ir para Revisão e SLA">
-      <div class="passo-num">4</div>
-      <div class="passo-info">
-        <span class="passo-titulo">4. Revisão & Emissão</span>
-        <span class="passo-sub" id="passo-4-sub">Conferência de regras</span>
+      <div class="passo-cognitivo ${etapaAtual === 3 ? 'ativo' : ''}" id="passo-3" data-passo="3" role="button" tabindex="0" title="3. Pregão & PCA">
+        <div class="passo-num">3</div>
+        <div class="passo-info">
+          <span class="passo-titulo">3. Pregão & PCA</span>
+          <span class="passo-sub" id="passo-3-sub">Licitação, Ata e PCA</span>
+        </div>
+      </div>
+      <div class="passo-cognitivo ${etapaAtual === 4 ? 'ativo' : ''}" id="passo-4" data-passo="4" role="button" tabindex="0" title="4. Itens & Quantidades">
+        <div class="passo-num">4</div>
+        <div class="passo-info">
+          <span class="passo-titulo">4. Itens & Valores</span>
+          <span class="passo-sub" id="passo-4-sub">Quantidades e Ata BRL</span>
+        </div>
+      </div>
+      <div class="passo-cognitivo ${etapaAtual === 5 ? 'ativo' : ''}" id="passo-5" data-passo="5" role="button" tabindex="0" title="5. Revisão & Emissão">
+        <div class="passo-num">5</div>
+        <div class="passo-info">
+          <span class="passo-titulo">5. Revisão & Emissão</span>
+          <span class="passo-sub" id="passo-5-sub">Finalidade, regras e PDF</span>
+        </div>
       </div>
     </div>
   </nav>`;
@@ -498,20 +794,11 @@ function renderStepperCognitivo() {
 function ligarStepperCognitivo() {
   const stepper = $('#stepper-requisicao');
   if (!stepper) return;
-  const mapa = {
-    '1': '#sec-identificacao',
-    '2': '#sec-fornecedores',
-    '3': '#sec-finalidade',
-    '4': '#painel-lateral',
-  };
   stepper.querySelectorAll('.passo-cognitivo').forEach((p) => {
     const ir = () => {
-      const seletor = mapa[p.dataset.passo];
-      const destino = $(seletor) || $(seletor === '#painel-lateral' ? '#barra-fixa' : '.cartao');
-      if (destino) {
-        destino.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        destino.focus?.();
-      }
+      const passoAlvo = Number(p.dataset.passo);
+      if (!passoAlvo || passoAlvo === etapaAtual) return;
+      mudarParaEtapa(passoAlvo);
     };
     p.onclick = ir;
     p.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ir(); } };
@@ -526,71 +813,220 @@ function atualizarStepperVisual() {
 
   const cab = st.cabecalho || {};
   const req = cab.requisitante || {};
-  const p1Ok = Boolean(cab.diex && cab.nup && req.posto && req.nome && req.funcao);
+  const p1Ok = Boolean(cab.diex && cab.nup && cab.data && req.posto && req.nome && req.funcao);
+
+  const fte = st.fonte || {};
+  const v = ultimo.requisicao;
+  const achadosFonte = (v?.achados || []).filter((a) => a.campo.startsWith('fonte') && a.nivel === 'ERRO');
+  const p2Ok = Boolean(fte.nc && achadosFonte.length === 0);
+
+  const temPregao = st.modalidade === 'PREGAO'
+    ? Boolean(st.licitacao.pregao_id || (st.licitacao.manual && st.licitacao.manual.numero))
+    : Boolean(st.licitacao.numero);
+  const pcaOk = st.pca?.consta === false
+    ? Boolean(st.pca?.justificativa && st.pca.justificativa.trim().length >= 15)
+    : Boolean(st.pca?.contratacao || st.pca?.classe);
+  const p3Ok = Boolean(temPregao && pcaOk && st.tipo_empenho);
 
   const totalItens = (st.fornecedores || []).reduce((acc, f) => acc + (f.itens || []).length, 0);
-  const p2Ok = totalItens > 0;
+  const itensValidos = totalItens > 0 && (st.fornecedores || []).every((f) =>
+    (f.itens || []).every((it) => parseDec(it.qtde) > 0 && parseDec(it.valor_unit) > 0)
+  );
+  const p4Ok = itensValidos;
 
   const finOk = Boolean(st.finalidade?.id && (st.finalidade.id !== 'OUTRA' || (st.finalidade.outra && st.finalidade.outra.trim().length >= 15)));
-  const pcaOk = st.pca?.consta !== false || Boolean(st.pca?.justificativa && st.pca.justificativa.trim().length >= 15);
-  const p3Ok = finOk && pcaOk;
-
-  const v = ultimo.requisicao;
   const erros = (v?.achados || []).filter((a) => a.nivel === 'ERRO');
   const alertas = (v?.achados || []).filter((a) => a.nivel === 'ALERTA');
   const ciente = new Set(st.alertas_ciente || []);
   const pend = alertas.filter((a) => !ciente.has(a.chave)).length;
-  const p4Ok = Boolean(v && erros.length === 0 && pend === 0 && p1Ok && p2Ok && p3Ok);
+  const p5Ok = Boolean(v && erros.length === 0 && pend === 0 && finOk && p1Ok && p2Ok && p3Ok && p4Ok);
 
-  const definirPasso = (id, ok, ativo, sub) => {
-    const p = $(`#passo-${id}`);
-    const s = $(`#passo-${id}-sub`);
-    if (!p) return;
-    p.classList.toggle('concluido', ok);
-    p.classList.toggle('ativo', ativo && !ok);
-    if (s && sub) s.textContent = sub;
-  };
+  const oks = [false, p1Ok, p2Ok, p3Ok, p4Ok, p5Ok];
 
-  definirPasso(1, p1Ok, !p1Ok, p1Ok ? '✓ Identificação OK' : 'DIEx, NUP e Solicitante');
-  definirPasso(2, p2Ok, p1Ok && !p2Ok, p2Ok ? `✓ ${totalItens} item(ns) listado(s)` : 'Adicionar itens e preços');
-  definirPasso(3, p3Ok, p1Ok && p2Ok && !p3Ok, p3Ok ? '✓ Justificativas OK' : 'Finalidade, PCA e NC');
-  definirPasso(4, p4Ok, p1Ok && p2Ok && p3Ok, p4Ok ? '✓ Pronto para emissão' : (erros.length ? `${erros.length} pendência(s)` : (pend ? `${pend} alerta(s)` : 'Aguardando validação')));
+  for (let i = 1; i <= 5; i++) {
+    const p = $(`#passo-${i}`);
+    const s = $(`#passo-${i}-sub`);
+    if (!p) continue;
+    p.classList.toggle('ativo', i === etapaAtual);
+    p.classList.toggle('concluido', oks[i]);
+  }
+
+  const fill = $('#stepper-progresso-fill');
+  if (fill) fill.style.width = `${(etapaAtual / 5) * 100}%`;
+  const mobileEtapaTxt = $('#stepper-mobile-etapa-txt');
+  if (mobileEtapaTxt) mobileEtapaTxt.textContent = `Etapa ${etapaAtual} de 5`;
+  const mobileNomeTxt = $('#stepper-mobile-nome-txt');
+  if (mobileNomeTxt) mobileNomeTxt.textContent = nomeEtapa(etapaAtual);
+
+  $$('.wizard-barra-acoes').forEach((barra) => {
+    const etapa = Number(barra.closest('.etapa-wizard')?.dataset.step);
+    if (!etapa) return;
+    const btnVoltar = $('.btn-wizard-voltar', barra);
+    if (btnVoltar) btnVoltar.disabled = etapa === 1;
+  });
+
+  atualizarPainelEtapa5();
+}
+
+function atualizarPainelEtapa5() {
+  if (tipo !== 'requisicao') return;
+  const v = ultimo.requisicao;
+  const st = estados.requisicao;
+  if (!st) return;
+
+  const cont5 = $('#contadores-etapa5');
+  const achados5 = $('#achados-etapa5');
+  const tg5 = $('#total-geral-etapa5');
+  const ajuda5 = $('#ajuda-gerar-etapa5');
+  const btnPdf5 = $('#btn-gerar-etapa5');
+  const btnWord5 = $('#btn-gerar-word-etapa5');
+  const btnWordBar = $('#btn-gerar-word-bar');
+  const btnAvancar5 = $('#btn-avancar-etapa5');
+  const resumoBox = $('#resumo-conferencia-etapa5');
+
+  const ciente = new Set(st.alertas_ciente || []);
+  const erros = v ? v.achados.filter((a) => a.nivel === 'ERRO') : [];
+  const alertas = v ? v.achados.filter((a) => a.nivel === 'ALERTA') : [];
+  const infos = v ? v.achados.filter((a) => a.nivel === 'INFO') : [];
+  const pend = alertas.filter((a) => !ciente.has(a.chave)).length;
+  const pode = Boolean(v && !erros.length && !pend);
+
+  if (cont5) {
+    cont5.innerHTML = `<span class="contador erro">${erros.length} erro(s)</span><span class="contador alerta">${alertas.length} alerta(s)${pend ? ` · ${pend} sem ciência` : ''}</span>${!erros.length && !pend ? '<span class="contador ok">Pronto para gerar</span>' : ''}`;
+  }
+
+  const tot = v?.resumo?.total_fmt;
+  if (tg5) {
+    tg5.hidden = !tot;
+    tg5.textContent = tot ? `Total Geral da Requisição: ${tot}` : '';
+  }
+
+  if (achados5) {
+    const li = (a) => `<li class="achado ${a.nivel === 'ERRO' ? 'erro' : a.nivel === 'ALERTA' ? 'alerta' : ''}"><strong>${a.nivel === 'ERRO' ? 'Erro' : a.nivel === 'ALERTA' ? 'Alerta' : 'Info'}:</strong> ${esc(a.mensagem)}${a.base_legal ? `<span class="base">Base: ${esc(a.base_legal)}</span>` : ''}${a.nivel === 'ALERTA' ? `<label><input type="checkbox" data-ciente="${esc(a.chave)}" ${ciente.has(a.chave) ? 'checked' : ''}> Estou ciente e confirmo</label>` : ''}</li>`;
+    achados5.innerHTML = [...erros, ...alertas, ...infos].map(li).join('') || '<li class="achado">Preencha o formulário: as conferências aparecem aqui.</li>';
+  }
+
+  if (ajuda5) {
+    ajuda5.textContent = pode ? 'O PDF oficial será gerado com os anexos correspondentes.' : (erros.length ? `Corrija ${erros.length} erro(s) para liberar o PDF oficial.` : `Confirme a ciência de ${pend} alerta(s).`);
+  }
+
+  if (btnPdf5) btnPdf5.disabled = !pode;
+  if (btnWord5) btnWord5.disabled = false;
+  if (btnWordBar) btnWordBar.disabled = false;
+  if (btnAvancar5) btnAvancar5.disabled = !pode;
+
+  if (resumoBox) {
+    const cab = st.cabecalho || {};
+    const req = cab.requisitante || {};
+    const totalItens = (st.fornecedores || []).reduce((acc, f) => acc + (f.itens || []).length, 0);
+    resumoBox.innerHTML = `
+      <div class="grid-resumo-requisicao">
+        <div class="card-resumo-item">
+          <span class="resumo-rotulo">DIEx / NUP</span>
+          <strong class="resumo-val">${esc(cab.diex || 'Não informado')}</strong>
+          <small class="resumo-sub">${esc(cab.nup || 'NUP pendente')}</small>
+        </div>
+        <div class="card-resumo-item">
+          <span class="resumo-rotulo">Requisitante</span>
+          <strong class="resumo-val">${esc(req.posto || '')} ${esc(req.nome || 'Não informado')}</strong>
+          <small class="resumo-sub">${esc(req.funcao || 'Função pendente')}</small>
+        </div>
+        <div class="card-resumo-item">
+          <span class="resumo-rotulo">Nota de Crédito (SIAFI)</span>
+          <strong class="resumo-val">${esc(st.fonte?.nc || 'Não informada')}</strong>
+          <small class="resumo-sub">${v?.resumo?.fonte?.nd ? `ND ${v.resumo.fonte.nd}` : 'Célula a vincular'}</small>
+        </div>
+        <div class="card-resumo-item">
+          <span class="resumo-rotulo">Itens Solicitados</span>
+          <strong class="resumo-val">${totalItens} item(ns)</strong>
+          <small class="resumo-sub">${tot || 'R$ 0,00'}</small>
+        </div>
+      </div>
+    `;
+  }
 }
 
 // ---------------------------------------------------------------- formulário: requisição
 function montarRequisicao() {
+  $('.layout')?.classList.add('com-wizard');
   const cat = CFG.catalogos;
   const st = estados.requisicao;
   const tipoUn = cat.tipos_unidade.map((t) => ({ v: t.id, t: t.rotulo }));
   const fin = cat.finalidades.map((f) => ({ v: f.id, t: f.texto.charAt(0).toUpperCase() + f.texto.slice(1) }));
   fin.push({ v: 'OUTRA', t: 'Outra (descrever)…' });
+
+  if (etapaAtual < 1 || etapaAtual > 5) etapaAtual = 1;
+
   const html = [
     renderStepperCognitivo(),
-    secIdentificacao(1, 'sec-identificacao'),
-    cartao(2, 'Objeto e licitação', 'Pregão da base do dashboard de capacidade de empenho, ou cadastro de um novo pregão/dispensa.',
-      `<div class="grade">${radios({ rotulo: 'Objeto', bind: 'objeto', opcoes: cat.objetos.map((o) => ({ v: o.id, t: o.rotulo })) })}
-        ${radios({ rotulo: 'Modalidade', bind: 'modalidade', opcoes: cat.modalidades.map((o) => ({ v: o.id, t: o.rotulo })) })}</div><div id="licitacao-dinamica"></div>`, 'sec-objeto'),
-    cartao(3, 'Finalidade da aquisição', 'Escolha a necessidade atendida (lista controlada).',
-      `<div class="grade">${campo({ rotulo: 'Finalidade', bind: 'finalidade.id', opcoes: fin, largo: true })}
-        <div class="campo largo" id="box-outra" hidden>${campo({ rotulo: 'Descreva a finalidade (15 a 160 caracteres)', bind: 'finalidade.outra', largo: true })}</div>
-        ${campo({ rotulo: 'Detalhamento (opcional, até 140 caracteres)', bind: 'finalidade.detalhe', largo: true, ajuda: 'Aparece entre parênteses após a finalidade.' })}</div>`, 'sec-finalidade'),
-    secFonte(4, 'Lida do PDF da NC: ND, PI, PTRES e UGR não são digitados.', 'sec-fonte'),
-    cartao(5, 'Condições do empenho', 'Tipo de empenho, contrato e Plano de Contratações Anual.',
-      `<div class="grade">${campo({ rotulo: 'Tipo de empenho', bind: 'tipo_empenho', opcoes: cat.tipos_empenho.map((t) => ({ v: t.id, t: t.rotulo })), ajuda: '' })}
-        <div class="campo" id="ajuda-tipo-empenho" style="justify-content:flex-end"></div>
-        ${radios({ rotulo: 'Há contrato formalizado?', bind: 'contrato.possui', opcoes: [{ v: 'false', t: 'Não (a NE substitui o contrato)' }, { v: 'true', t: 'Sim' }] })}
-        <div id="box-contrato" class="largo"></div>
-        ${radios({ rotulo: 'A contratação consta no PCA?', bind: 'pca.consta', opcoes: [{ v: 'true', t: 'Sim' }, { v: 'false', t: 'Não' }] })}
-        <div id="box-pca" class="largo"></div></div>`, 'sec-condicoes'),
-    cartao(6, 'Fornecedores e itens', 'Itens do pregão trazem preço, saldo e vigência da ata; o subitem é sugerido pela ND da NC.',
-      `<div id="itens-dinamico"></div>`, 'sec-fornecedores'),
-    cartao(7, 'Anexos', '', marca({ rotulo: 'Anexar a cópia da NC ao PDF final', bind: 'anexar_nc' }), 'sec-anexos'),
+    `<div class="wizard-container" id="wizard-requisicao">
+      <!-- ETAPA 1: IDENTIFICAÇÃO DO DIEx & SOLICITANTE -->
+      <div class="etapa-wizard ${etapaAtual === 1 ? 'ativa' : ''}" data-step="1" id="etapa-wizard-1">
+        ${secIdentificacao(1, 'sec-identificacao')}
+        ${renderBarraAcoesEtapa(1, 'Avançar para Orçamento (NC) ›')}
+      </div>
+
+      <!-- ETAPA 2: FONTE DE RECURSO & SIAFI -->
+      <div class="etapa-wizard ${etapaAtual === 2 ? 'ativa' : ''}" data-step="2" id="etapa-wizard-2">
+        ${secFonte(2, 'Lida do PDF da NC: ND, PI, PTRES e UGR não são digitados.')}
+        ${renderBarraAcoesEtapa(2, 'Avançar para Licitação & PCA ›')}
+      </div>
+
+      <!-- ETAPA 3: ENQUADRAMENTO LICITATÓRIO & PCA -->
+      <div class="etapa-wizard ${etapaAtual === 3 ? 'ativa' : ''}" data-step="3" id="etapa-wizard-3">
+        ${cartao(3, 'Objeto e enquadramento licitatório', 'Modalidade da contratação (Pregão, Dispensa, Inexigibilidade, Contrato) e seleção da Ata.',
+          `<div class="grade">${radios({ rotulo: 'Objeto', bind: 'objeto', opcoes: cat.objetos.map((o) => ({ v: o.id, t: o.rotulo })) })}
+            ${radios({ rotulo: 'Modalidade', bind: 'modalidade', opcoes: cat.modalidades.map((o) => ({ v: o.id, t: o.rotulo })) })}</div><div id="licitacao-dinamica"></div>`, 'sec-objeto')}
+        ${cartao('3B', 'Condições do empenho & Plano de Contratações Anual (PCA)', 'Tipo de empenho, formalização de contrato e enquadramento no PCA da OM.',
+          `<div class="grade">${campo({ rotulo: 'Tipo de empenho', bind: 'tipo_empenho', opcoes: cat.tipos_empenho.map((t) => ({ v: t.id, t: t.rotulo })), ajuda: '' })}
+            <div class="campo" id="ajuda-tipo-empenho" style="justify-content:flex-end"></div>
+            ${radios({ rotulo: 'Há contrato formalizado?', bind: 'contrato.possui', opcoes: [{ v: 'false', t: 'Não (a NE substitui o contrato)' }, { v: 'true', t: 'Sim' }] })}
+            <div id="box-contrato" class="largo"></div>
+            ${radios({ rotulo: 'A contratação consta no PCA?', bind: 'pca.consta', opcoes: [{ v: 'true', t: 'Sim' }, { v: 'false', t: 'Não' }] })}
+            <div id="box-pca" class="largo"></div></div>`, 'sec-condicoes')}
+        ${renderBarraAcoesEtapa(3, 'Avançar para Itens & Quantidades ›')}
+      </div>
+
+      <!-- ETAPA 4: FORNECEDORES, ITENS & QUANTIDADES -->
+      <div class="etapa-wizard ${etapaAtual === 4 ? 'ativa' : ''}" data-step="4" id="etapa-wizard-4">
+        ${cartao(4, 'Fornecedores e itens da requisição', 'Itens do pregão trazem preço, saldo e vigência da ata; o subitem é sugerido pela ND da NC.',
+          `<div id="itens-dinamico"></div>`, 'sec-fornecedores')}
+        ${renderBarraAcoesEtapa(4, 'Avançar para Revisão & Emissão ›')}
+      </div>
+
+      <!-- ETAPA 5: FINALIDADE, ANEXOS & REVISÃO GERAL -->
+      <div class="etapa-wizard ${etapaAtual === 5 ? 'ativa' : ''}" data-step="5" id="etapa-wizard-5">
+        ${cartao(5, 'Finalidade da aquisição', 'Escolha a necessidade atendida (lista controlada).',
+          `<div class="grade">${campo({ rotulo: 'Finalidade', bind: 'finalidade.id', opcoes: fin, largo: true })}
+            <div class="campo largo" id="box-outra" hidden>${campo({ rotulo: 'Descreva a finalidade (15 a 160 caracteres)', bind: 'finalidade.outra', largo: true })}</div>
+            ${campo({ rotulo: 'Detalhamento (opcional, até 140 caracteres)', bind: 'finalidade.detalhe', largo: true, ajuda: 'Aparece entre parênteses após a finalidade.' })}</div>`, 'sec-finalidade')}
+        ${cartao('5B', 'Anexos do documento', '', marca({ rotulo: 'Anexar a cópia da NC ao PDF final', bind: 'anexar_nc' }), 'sec-anexos')}
+        <section class="cartao painel-conferencia-etapa5" id="painel-conferencia-etapa5" aria-live="polite">
+          <header><span class="num" aria-hidden="true">✓</span><div><h2>Revisão Geral e Conferência de Regras</h2><p>Validação sistêmica, integridade legal da Lei 14.133/2021 e emissão oficial.</p></div></header>
+          <div class="resumo-conferencia-etapa5" id="resumo-conferencia-etapa5"></div>
+          <div class="contadores" id="contadores-etapa5"></div>
+          <div id="total-geral-etapa5" class="total-geral" hidden></div>
+          <ul class="achados" id="achados-etapa5"></ul>
+          <p class="ajuda" id="ajuda-gerar-etapa5" style="color:var(--muted);font-size:.85rem;margin-top:8px"></p>
+          <div class="linha-botoes-emissao">
+            <button type="button" class="btn btn-secundario btn-word" id="btn-gerar-word-etapa5" title="Gera o documento editável em formato Microsoft Word (.docx), sempre liberado"><span>📝</span> Gerar Word (.docx)</button>
+            <button type="button" class="btn btn-primario btn-gerar-pdf" id="btn-gerar-etapa5" disabled>Gerar PDF Oficial</button>
+          </div>
+        </section>
+        ${renderBarraAcoesEtapa(5, 'Emitir Documento Oficial')}
+      </div>
+    </div>`
   ].join('');
+
   $('#formulario').innerHTML = html;
   sincronizarCampos($('#formulario'));
   ligarStepperCognitivo();
   atualizarStepperVisual();
   ligarBuscaNC(); renderLicitacao(); renderCondicoes(); renderFornecedores(); renderFonte(); alternarOutra();
+
+  $('#btn-gerar-word-etapa5')?.addEventListener('click', gerarWord);
+  $('#btn-gerar-etapa5')?.addEventListener('click', gerar);
+  $('#btn-gerar-word-bar')?.addEventListener('click', gerarWord);
 }
 
 function alternarOutra() {
@@ -3012,9 +3448,9 @@ function mostrarConferencia() {
   const li = (a) => `<li class="achado ${a.nivel === 'ERRO' ? 'erro' : a.nivel === 'ALERTA' ? 'alerta' : ''}"><strong>${a.nivel === 'ERRO' ? 'Erro' : a.nivel === 'ALERTA' ? 'Alerta' : 'Info'}:</strong> ${esc(a.mensagem)}${a.base_legal ? `<span class="base">Base: ${esc(a.base_legal)}</span>` : ''}${a.nivel === 'ALERTA' ? `<label><input type="checkbox" data-ciente="${esc(a.chave)}" ${ciente.has(a.chave) ? 'checked' : ''}> Estou ciente e confirmo</label>` : ''}</li>`;
   $('#achados').innerHTML = [...erros, ...alertas, ...infos].map(li).join('') || '<li class="achado">Preencha o formulário: as conferências aparecem aqui.</li>';
   const pode = !erros.length && !pend;
-  ['#btn-gerar', '#btn-gerar-2', '#btn-gerar-3'].forEach((s) => { $(s).disabled = !pode; });
+  ['#btn-gerar', '#btn-gerar-2', '#btn-gerar-3', '#btn-gerar-etapa5', '#btn-avancar-etapa5'].forEach((s) => { const b = $(s); if (b) b.disabled = !pode; });
   // O botão de gerar em Word permanece SEMPRE habilitado
-  ['#btn-gerar-word', '#btn-gerar-word-2', '#btn-gerar-word-3'].forEach((s) => {
+  ['#btn-gerar-word', '#btn-gerar-word-2', '#btn-gerar-word-3', '#btn-gerar-word-etapa5', '#btn-gerar-word-bar'].forEach((s) => {
     const b = $(s);
     if (b) b.disabled = false;
   });
@@ -3024,6 +3460,7 @@ function mostrarConferencia() {
   const n = erros.length + pend; const selo = $('#pt-conf-n');
   selo.hidden = !n; selo.textContent = String(n); selo.className = `selo ${erros.length ? 'erro' : 'alerta'}`;
   $('#barra-resumo').textContent = erros.length ? `${erros.length} erro(s) a corrigir` : pend ? `${pend} alerta(s) sem ciência` : `Pronto · ${tot || ''}`;
+  if (tipo === 'requisicao') atualizarPainelEtapa5();
 }
 function aplicarAchados() {
   const v = ultimo[tipo]; if (!v) return;
@@ -3048,7 +3485,7 @@ let emSubmissaoWord = false;
 async function gerarWord() {
   if (emSubmissaoWord) return;
   emSubmissaoWord = true;
-  const btns = ['#btn-gerar-word', '#btn-gerar-word-2', '#btn-gerar-word-3'].map((s) => $(s)).filter(Boolean);
+  const btns = ['#btn-gerar-word', '#btn-gerar-word-2', '#btn-gerar-word-3', '#btn-gerar-word-etapa5', '#btn-gerar-word-bar'].map((s) => $(s)).filter(Boolean);
   btns.forEach((b) => {
     b.disabled = true;
     b.setAttribute('aria-busy', 'true');
@@ -3102,7 +3539,7 @@ async function gerar() {
   if (emSubmissao) return;
   emSubmissao = true;
   tentouGerar = true; aplicarAchados();
-  const btns = ['#btn-gerar', '#btn-gerar-2', '#btn-gerar-3'].map((s) => $(s)).filter(Boolean);
+  const btns = ['#btn-gerar', '#btn-gerar-2', '#btn-gerar-3', '#btn-gerar-etapa5', '#btn-avancar-etapa5'].map((s) => $(s)).filter(Boolean);
   btns.forEach((b) => {
     b.disabled = true;
     b.setAttribute('aria-busy', 'true');
@@ -3209,11 +3646,16 @@ function montar() {
   $('#resultado').hidden = true;
   atualizarPainel();
   $('#barra-fixa').style.display = (tipo === 'historico' || tipo === 'contratos') ? 'none' : '';
-  if (tipo === 'requisicao') montarRequisicao();
-  else if (tipo === 'reforco') montarReforco();
-  else if (tipo === 'anulacao') montarAnulacao();
-  else if (tipo === 'contratos') montarContratos();
-  else montarHistorico();
+  if (tipo === 'requisicao') {
+    $('.layout')?.classList.add('com-wizard');
+    montarRequisicao();
+  } else {
+    $('.layout')?.classList.remove('com-wizard');
+    if (tipo === 'reforco') montarReforco();
+    else if (tipo === 'anulacao') montarAnulacao();
+    else if (tipo === 'contratos') montarContratos();
+    else montarHistorico();
+  }
 }
 function trocarAba(novo) {
   if (novo === tipo) return;
@@ -3279,6 +3721,36 @@ async function iniciar() {
   form.addEventListener('change', aoAlterar);
   form.addEventListener('focusout', (ev) => { const c = ev.target.closest?.('[data-bind]'); if (c) { tocados.add(c.dataset.bind); aplicarAchados(); } });
   form.addEventListener('click', (ev) => {
+    const btnAvancar = ev.target.closest('[data-acao="avancar"]');
+    if (btnAvancar) {
+      ev.preventDefault();
+      avancarEtapa();
+      return;
+    }
+    const btnVoltar = ev.target.closest('[data-acao="voltar"]');
+    if (btnVoltar) {
+      ev.preventDefault();
+      voltarEtapa();
+      return;
+    }
+    const btnEmitirPdf = ev.target.closest('[data-acao="emitir-pdf"]');
+    if (btnEmitirPdf) {
+      ev.preventDefault();
+      gerar();
+      return;
+    }
+    const btnWordEtapa5 = ev.target.closest('#btn-gerar-word-etapa5, #btn-gerar-word-bar');
+    if (btnWordEtapa5) {
+      ev.preventDefault();
+      gerarWord();
+      return;
+    }
+    const btnPdfEtapa5 = ev.target.closest('#btn-gerar-etapa5');
+    if (btnPdfEtapa5) {
+      ev.preventDefault();
+      gerar();
+      return;
+    }
     const o = ev.target.closest('[data-origem]');
     if (o) {
       const inp = $('[data-bind="cabecalho.diex"]'); const num = (inp.value.match(/^\s*(\d+)/) || [])[1] || '';
@@ -3294,12 +3766,14 @@ async function iniciar() {
     const d = ev.target.closest('[data-det]');
     if (d) { estados[tipo].fonte.nc_detalhamento = d.dataset.det; const inp = $('[data-bind="fonte.nc_detalhamento"]'); if (inp) inp.value = d.dataset.det; agendar(true); }
   });
-  $('#achados').addEventListener('change', (ev) => {
+  const tratarCienciaAlerta = (ev) => {
     const c = ev.target.closest('[data-ciente]'); if (!c) return;
     const st = estados[tipo]; const s = new Set(st.alertas_ciente || []);
     if (c.checked) s.add(c.dataset.ciente); else s.delete(c.dataset.ciente);
     st.alertas_ciente = [...s]; salvarRascunho(); agendar(true);
-  });
+  };
+  $('#achados').addEventListener('change', tratarCienciaAlerta);
+  form.addEventListener('change', tratarCienciaAlerta);
   ['#btn-gerar', '#btn-gerar-2', '#btn-gerar-3'].forEach((s) => $(s)?.addEventListener('click', gerar));
   ['#btn-gerar-word', '#btn-gerar-word-2', '#btn-gerar-word-3'].forEach((s) => $(s)?.addEventListener('click', gerarWord));
   $$('.aba-painel').forEach((b) => b.addEventListener('click', () => { painel = b.dataset.painel; try { localStorage.setItem('reqemp.painel', painel); } catch { /* sem armazenamento */ } atualizarPainel(); }));
