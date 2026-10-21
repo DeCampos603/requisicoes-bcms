@@ -1453,24 +1453,33 @@ body {
 }
 
 /* ==========================================================================
-   STEPPER COGNITIVO EM 5 PASSOS (DESKTOP & MOBILE COMPACTO)
+   STEPPER COGNITIVO EM 5 PASSOS (RESPONSIVO DINÂMICO & CONTAINER AWARE)
    ========================================================================== */
 .stepper-cognitivo {
+  container-type: inline-size;
+  container-name: stepper;
+  position: sticky;
+  top: 8px;
+  z-index: 25;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 12px 14px;
+  padding: 10px 14px;
   margin-bottom: var(--gap);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(8px);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Grid com 5 colunas no Desktop */
+/* Grid de 5 colunas no Desktop */
 .stepper-passos-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
+  align-items: stretch;
 }
 
 .passo-cognitivo {
@@ -1480,10 +1489,11 @@ body {
   padding: 8px 10px;
   border-radius: 8px;
   background: var(--surface-2);
-  border: 1px solid transparent;
+  border: 1px solid var(--line-light, transparent);
   cursor: pointer;
   transition: all 0.18s ease;
   user-select: none;
+  min-width: 0;
 }
 
 .passo-cognitivo:hover {
@@ -1491,15 +1501,16 @@ body {
   background: var(--primary-soft);
 }
 
-.passo-cognitivo.ativo {
-  background: var(--primary-soft);
-  border-color: var(--primary);
-  box-shadow: 0 0 0 1px var(--primary);
-}
-
 .passo-cognitivo.concluido {
   background: var(--ok-bg);
   border-color: var(--ok);
+}
+
+/* O passo ATIVO tem precedência visual absoluta sobre o concluído */
+.passo-cognitivo.ativo {
+  background: var(--primary-soft) !important;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px var(--primary);
 }
 
 .passo-num {
@@ -1516,21 +1527,22 @@ body {
   transition: transform 0.18s ease, background 0.18s ease;
 }
 
-.passo-cognitivo.ativo .passo-num {
-  background: var(--primary);
-  color: var(--primary-ink);
-  transform: scale(1.06);
-}
-
 .passo-cognitivo.concluido .passo-num {
   background: var(--ok);
   color: #fff;
+}
+
+.passo-cognitivo.ativo .passo-num {
+  background: var(--primary) !important;
+  color: var(--primary-ink) !important;
+  transform: scale(1.08);
 }
 
 .passo-info {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow: hidden;
 }
 
 .passo-titulo {
@@ -1540,6 +1552,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text);
+  line-height: 1.2;
 }
 
 .passo-sub {
@@ -1548,6 +1561,156 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.2;
+  margin-top: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   ADAPTAÇÃO AO REDIMENSIONAMENTO DO CONTAINER (CONTAINER QUERIES)
+   -------------------------------------------------------------------------- */
+
+/* Nível 1: Container Médio / Desktop com Painel Aberto (<= 1060px) */
+@container stepper (max-width: 1060px) {
+  .passo-sub {
+    display: none !important;
+  }
+  .passo-cognitivo {
+    padding: 8px 6px;
+    gap: 8px;
+    justify-content: center;
+  }
+  .passo-titulo {
+    font-size: 0.80rem;
+    text-align: left;
+  }
+}
+
+/* Nível 2: Container Estreito / Split Screen / Tablet Médio (<= 760px) */
+@container stepper (max-width: 760px) {
+  .stepper-passos-grid {
+    gap: 6px;
+  }
+  .passo-cognitivo {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 4px;
+    padding: 6px 3px;
+  }
+  .passo-num {
+    width: 24px;
+    height: 24px;
+    font-size: 0.75rem;
+    margin: 0 auto;
+  }
+  .passo-info {
+    align-items: center;
+    width: 100%;
+  }
+  .passo-titulo {
+    font-size: 0.73rem;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.15;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* Nível 3: Container Mobile / Smartphones (<= 540px) */
+@container stepper (max-width: 540px) {
+  .stepper-mobile-header {
+    display: flex !important;
+  }
+  .stepper-passos-grid {
+    display: flex !important;
+    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+    justify-content: space-between;
+  }
+  .stepper-passos-grid .passo-info {
+    display: none !important;
+  }
+  .stepper-passos-grid .passo-cognitivo {
+    padding: 6px;
+    border-radius: 50%;
+    min-height: 40px;
+    min-width: 40px;
+    justify-content: center;
+    flex: 0 0 40px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   FALLBACK VIA CLASSES DINÂMICAS DO RESIZEOBSERVER (stepper-compacto / mini / mobile)
+   -------------------------------------------------------------------------- */
+.stepper-cognitivo.stepper-compacto .passo-sub {
+  display: none !important;
+}
+.stepper-cognitivo.stepper-compacto .passo-cognitivo {
+  padding: 8px 6px;
+  gap: 8px;
+}
+.stepper-cognitivo.stepper-compacto .passo-titulo {
+  font-size: 0.80rem;
+}
+
+.stepper-cognitivo.stepper-mini .stepper-passos-grid {
+  gap: 6px;
+}
+.stepper-cognitivo.stepper-mini .passo-cognitivo {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 6px 3px;
+}
+.stepper-cognitivo.stepper-mini .passo-num {
+  width: 24px;
+  height: 24px;
+  font-size: 0.75rem;
+  margin: 0 auto;
+}
+.stepper-cognitivo.stepper-mini .passo-info {
+  align-items: center;
+  width: 100%;
+}
+.stepper-cognitivo.stepper-mini .passo-titulo {
+  font-size: 0.73rem;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.15;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.stepper-cognitivo.stepper-mobile-mode .stepper-mobile-header {
+  display: flex !important;
+}
+.stepper-cognitivo.stepper-mobile-mode .stepper-passos-grid {
+  display: flex !important;
+  overflow-x: auto;
+  gap: 6px;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+  justify-content: space-between;
+}
+.stepper-cognitivo.stepper-mobile-mode .stepper-passos-grid .passo-info {
+  display: none !important;
+}
+.stepper-cognitivo.stepper-mobile-mode .stepper-passos-grid .passo-cognitivo {
+  padding: 6px;
+  border-radius: 50%;
+  min-height: 40px;
+  min-width: 40px;
+  justify-content: center;
+  flex: 0 0 40px;
 }
 
 /* Stepper Mobile Header (Barra Linear + Indicador Compacto) */
@@ -1599,7 +1762,7 @@ body {
   white-space: nowrap;
 }
 
-/* Breakpoint do Stepper no Smartphone (<= 768px) */
+/* Breakpoint do Stepper no Smartphone (<= 768px fallback) */
 @media (max-width: 768px) {
   .stepper-mobile-header {
     display: flex;
@@ -1621,6 +1784,7 @@ body {
     min-height: 40px;
     min-width: 40px;
     justify-content: center;
+    flex: 0 0 40px;
   }
 }
 
@@ -1787,16 +1951,20 @@ body {
 }
 
 /* ==========================================================================
-   RESPONSIVIDADE: DESATIVAÇÃO DO ASIDE LATERAL NO MOBILE
+   RESPONSIVIDADE: DESATIVAÇÃO DO ASIDE LATERAL & BARRA FIXA NO WIZARD
    ========================================================================== */
-@media (max-width: 900px) {
+/* No Wizard de Requisição, a barra legada NUNCA deve aparecer, evitando sobreposição com o rodapé do passo */
+.layout.com-wizard ~ .barra-fixa,
+body:has(.layout.com-wizard) .barra-fixa {
+  display: none !important;
+}
+
+/* Em telas <= 1024px (tablets / laptops padrão / janelas redimensionadas), desativa o painel lateral no wizard */
+@media (max-width: 1024px) {
   .layout.com-wizard {
     grid-template-columns: 1fr !important;
   }
   .layout.com-wizard .painel {
-    display: none !important;
-  }
-  .layout.com-wizard ~ .barra-fixa {
     display: none !important;
   }
 }

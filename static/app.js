@@ -473,9 +473,9 @@ let etapaAtual = (() => {
 
 const NOMES_ETAPAS = {
   1: 'DIEx & Solicitante',
-  2: 'Fonte de Recurso & SIAFI',
+  2: 'NC / SIAFI',
   3: 'Licitação & PCA',
-  4: 'Itens & Quantidades',
+  4: 'Itens & Valores',
   5: 'Revisão & Emissão',
 };
 
@@ -755,40 +755,63 @@ function renderStepperCognitivo() {
       <div class="passo-cognitivo ${etapaAtual === 1 ? 'ativo' : ''}" id="passo-1" data-passo="1" role="button" tabindex="0" title="1. DIEx & Solicitante">
         <div class="passo-num">1</div>
         <div class="passo-info">
-          <span class="passo-titulo">1. DIEx & Solicitante</span>
-          <span class="passo-sub" id="passo-1-sub">DIEx, NUP e Requisitante</span>
+          <span class="passo-titulo">1. DIEx &amp; NUP</span>
+          <span class="passo-sub" id="passo-1-sub">Requisitante</span>
         </div>
       </div>
       <div class="passo-cognitivo ${etapaAtual === 2 ? 'ativo' : ''}" id="passo-2" data-passo="2" role="button" tabindex="0" title="2. NC / SIAFI">
         <div class="passo-num">2</div>
         <div class="passo-info">
           <span class="passo-titulo">2. NC / SIAFI</span>
-          <span class="passo-sub" id="passo-2-sub">Nota de Crédito e Saldo</span>
+          <span class="passo-sub" id="passo-2-sub">Crédito e Saldo</span>
         </div>
       </div>
-      <div class="passo-cognitivo ${etapaAtual === 3 ? 'ativo' : ''}" id="passo-3" data-passo="3" role="button" tabindex="0" title="3. Pregão & PCA">
+      <div class="passo-cognitivo ${etapaAtual === 3 ? 'ativo' : ''}" id="passo-3" data-passo="3" role="button" tabindex="0" title="3. Licitação & PCA">
         <div class="passo-num">3</div>
         <div class="passo-info">
-          <span class="passo-titulo">3. Pregão & PCA</span>
-          <span class="passo-sub" id="passo-3-sub">Licitação, Ata e PCA</span>
+          <span class="passo-titulo">3. Licitação &amp; PCA</span>
+          <span class="passo-sub" id="passo-3-sub">Pregão ou Dispensa</span>
         </div>
       </div>
-      <div class="passo-cognitivo ${etapaAtual === 4 ? 'ativo' : ''}" id="passo-4" data-passo="4" role="button" tabindex="0" title="4. Itens & Quantidades">
+      <div class="passo-cognitivo ${etapaAtual === 4 ? 'ativo' : ''}" id="passo-4" data-passo="4" role="button" tabindex="0" title="4. Itens & Valores">
         <div class="passo-num">4</div>
         <div class="passo-info">
-          <span class="passo-titulo">4. Itens & Valores</span>
-          <span class="passo-sub" id="passo-4-sub">Quantidades e Ata BRL</span>
+          <span class="passo-titulo">4. Itens &amp; Valores</span>
+          <span class="passo-sub" id="passo-4-sub">Quantidades da Ata</span>
         </div>
       </div>
       <div class="passo-cognitivo ${etapaAtual === 5 ? 'ativo' : ''}" id="passo-5" data-passo="5" role="button" tabindex="0" title="5. Revisão & Emissão">
         <div class="passo-num">5</div>
         <div class="passo-info">
-          <span class="passo-titulo">5. Revisão & Emissão</span>
-          <span class="passo-sub" id="passo-5-sub">Finalidade, regras e PDF</span>
+          <span class="passo-titulo">5. Revisão &amp; Emissão</span>
+          <span class="passo-sub" id="passo-5-sub">Word e PDF Oficial</span>
         </div>
       </div>
     </div>
   </nav>`;
+}
+
+let _stepperResizeObserver = null;
+function ligarRedimensionamentoStepper() {
+  const stepper = $('#stepper-requisicao');
+  if (!stepper) return;
+  if (_stepperResizeObserver) {
+    try { _stepperResizeObserver.disconnect(); } catch {}
+  }
+  const ajustarClasses = (largura) => {
+    stepper.classList.toggle('stepper-compacto', largura < 1060);
+    stepper.classList.toggle('stepper-mini', largura < 760);
+    stepper.classList.toggle('stepper-mobile-mode', largura < 540);
+  };
+  ajustarClasses(stepper.getBoundingClientRect().width);
+  if (typeof ResizeObserver !== 'undefined') {
+    _stepperResizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        ajustarClasses(entry.contentRect.width);
+      }
+    });
+    _stepperResizeObserver.observe(stepper);
+  }
 }
 
 function ligarStepperCognitivo() {
@@ -1021,6 +1044,7 @@ function montarRequisicao() {
   $('#formulario').innerHTML = html;
   sincronizarCampos($('#formulario'));
   ligarStepperCognitivo();
+  ligarRedimensionamentoStepper();
   atualizarStepperVisual();
   ligarBuscaNC(); renderLicitacao(); renderCondicoes(); renderFornecedores(); renderFonte(); alternarOutra();
 
@@ -3855,3 +3879,7 @@ async function iniciar() {
   montar(); validar();
 }
 iniciar();
+
+window.addEventListener('resize', () => {
+  if (tipo === 'requisicao') ligarRedimensionamentoStepper();
+}, { passive: true });
