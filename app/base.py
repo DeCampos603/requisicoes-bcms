@@ -143,10 +143,19 @@ MAPA_CATEGORIAS = {
 }
 
 
+def carregar_titulos_pregoes() -> dict[str, dict]:
+    """Carrega catálogo com títulos oficiais do PNCP e especificações refinadas."""
+    arq = config.DADOS / "titulos_pregoes.json"
+    if arq.is_file():
+        try:
+            return json.loads(arq.read_text(encoding="utf-8"))
+        except Exception as e:
+            log.warning("Falha ao carregar titulos_pregoes.json: %s", e)
+    return {}
+
+
 def sintetizar_objeto_pregao(p: dict) -> tuple[str, list[str]]:
     """Sintetiza um rótulo de objeto amigável e as categorias padronizadas do pregão."""
-    if p.get("objeto") and p.get("categorias"):
-        return p["objeto"], p["categorias"]
     cats_brutas = [i.get("categoria") for i in p.get("itens", []) if i.get("categoria")]
     padronizadas: list[str] = []
     for c in cats_brutas:
@@ -169,6 +178,28 @@ def sintetizar_objeto_pregao(p: dict) -> tuple[str, list[str]]:
             padronizadas.append("Alimentação e Copa")
         else:
             padronizadas.append("Material de Consumo")
+
+    # 1. Se já tem objeto definido e não é 'x', preserva
+    if p.get("objeto") and p.get("objeto") != "x" and p.get("categorias"):
+        return p["objeto"], p["categorias"]
+
+    # 2. Consulta catálogo oficial de títulos (PNCP / Especificação de Itens)
+    u = str(p.get("ugg") or "").strip()
+    num_str = str(p.get("numero") or "").strip()
+    if "/" in num_str:
+        num_part, ano_part = num_str.split("/")
+    else:
+        num_part, ano_part = num_str, "2026"
+    num_clean = num_part.lstrip("0")
+    key = f"{u}:{num_clean}:{ano_part}"
+
+    catalogo = carregar_titulos_pregoes()
+    if key in catalogo:
+        info = catalogo[key]
+        tit = info.get("titulo_curto") or info.get("objeto_completo")
+        if tit:
+            return tit, padronizadas
+
     resumo_partes: list[str] = []
     if any("Viaturas" in c for c in padronizadas):
         resumo_partes.append("Manutenção de Viaturas")

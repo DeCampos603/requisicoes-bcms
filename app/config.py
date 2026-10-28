@@ -32,7 +32,12 @@ def _pasta(env: str, padrao: Path) -> Path:
     return Path(valor) if valor else padrao
 
 
-EMPENHOS_RAIZ = _pasta("EMPENHOS_RAIZ", REPO / "EMPENHOS")
+_padrao_empenhos = (
+    REPO / "Acervo-Empenhos-BCMS-2026"
+    if (REPO / "Acervo-Empenhos-BCMS-2026" / "Empenhos").is_dir()
+    else REPO / "EMPENHOS"
+)
+EMPENHOS_RAIZ = _pasta("EMPENHOS_RAIZ", _padrao_empenhos)
 NE_DIRS = {"160329": EMPENHOS_RAIZ / "Empenhos" / "160329", "167329": EMPENHOS_RAIZ / "Empenhos" / "167329"}
 NC_DIRS = {"160329": EMPENHOS_RAIZ / "Notas de Crédito" / "160329", "167329": EMPENHOS_RAIZ / "Notas de Crédito" / "167329"}
 
@@ -55,7 +60,7 @@ STATIC = PROJETO / "static"
 # Onde o upload grava. Por padrão, direto nas pastas oficiais do repositório (EMPENHOS/Notas de Crédito/<UG> e
 # EMPENHOS/Empenhos/<UG>), com a mesma convenção de nome do restante — assim a NC/NE enviada passa a existir "na base
 # do repositório" para todos. No Docker/Cloud Run (sem EMPENHOS_RAIZ acessível), grava direto em dados/nc e dados/ne.
-if os.environ.get("REQEMP_UPLOADS_EM", "").lower() == "local" or not (REPO / "EMPENHOS").is_dir():
+if os.environ.get("REQEMP_UPLOADS_EM", "").lower() == "local" or not EMPENHOS_RAIZ.is_dir():
     UPLOAD_NC_DIRS = {ug: DADOS_NC_DIRS[ug] for ug in NC_DIRS}
     UPLOAD_NE_DIRS = {ug: DADOS_NE_DIRS[ug] for ug in NE_DIRS}
 else:

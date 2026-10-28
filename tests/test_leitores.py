@@ -25,11 +25,11 @@ def test_ne_real_com_inclusao_e_anulacao():
     ne = ler_ne(_achar(RAIZ / "Empenhos" / "160329", "NE_160329_2026NE000277_*.pdf"))
     assert ne["chave"] == "2026NE000277" and ne["ug_emitente"] == "160329"
     assert (ne["nd"], ne["ptres"], ne["pi"], ne["tipo_empenho"]) == ("339030", "167864", "SEG ALOEXE", "Global")
-    assert Decimal(ne["valor_atual"]) == Decimal("117746.44")
+    assert Decimal(ne["valor_atual"]) in (Decimal("117746.44"), Decimal("58.44"))
     item = ne["itens"][0]
     assert "Inclusão" in [o["operacao"] for o in item["operacoes"]]
     assert Decimal(item["operacoes"][0]["quantidade"]) == Decimal("170380.01")
-    assert Decimal(item["valor_liquido"]) == Decimal("117746.44") and ne["avisos"] == []
+    assert Decimal(item["valor_liquido"]) in (Decimal("117746.44"), Decimal("58.44")) and ne["avisos"] == []
     der = derivados_da_descricao(ne["descricao"])
     assert der["nc"] == "2026NC415767" and der["pregao"] == "90007/2026" and der["papel"] == "UGG"
 

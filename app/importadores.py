@@ -60,7 +60,13 @@ def _agora() -> str:
 def _pastas_ne() -> dict[str, list[Path]]:
     pastas: dict[str, list[Path]] = {}
     for ug in config.NE_DIRS:
-        pastas[ug] = [config.NE_DIRS[ug], config.UPLOAD_NE_DIRS[ug], config.DADOS_NE_DIRS[ug]]
+        pastas[ug] = [
+            config.NE_DIRS[ug],
+            config.UPLOAD_NE_DIRS[ug],
+            config.DADOS_NE_DIRS[ug],
+            config.REPO / "Acervo-Empenhos-BCMS-2026" / "Empenhos" / ug,
+            config.REPO / "EMPENHOS" / "Empenhos" / ug,
+        ]
     return pastas
 
 
@@ -224,7 +230,15 @@ def importar_nes(progresso: Progresso = print) -> dict:
 
 # ----------------------------------------------------------------------------- NC
 def importar_ncs(progresso: Progresso = print) -> dict:
-    todas_pastas = [p for ug in config.NC_DIRS for p in (config.NC_DIRS[ug], config.UPLOAD_NC_DIRS[ug], config.DADOS_NC_DIRS[ug]) if p.is_dir()]
+    todas_pastas = [
+        p for ug in config.NC_DIRS for p in (
+            config.NC_DIRS[ug],
+            config.UPLOAD_NC_DIRS[ug],
+            config.DADOS_NC_DIRS[ug],
+            config.REPO / "Acervo-Empenhos-BCMS-2026" / "Notas de Crédito" / ug,
+            config.REPO / "EMPENHOS" / "Notas de Crédito" / ug,
+        ) if p.is_dir()
+    ]
     if not todas_pastas:
         raise FileNotFoundError("Pastas de notas de crédito (NC) não encontradas em EMPENHOS nem em dados/nc.")
     ncs: dict[str, dict] = {}
@@ -234,7 +248,14 @@ def importar_ncs(progresso: Progresso = print) -> dict:
     for ug in config.NC_DIRS:
         destino_local = config.DADOS_NC_DIRS[ug]
         destino_local.mkdir(parents=True, exist_ok=True)
-        for pasta in dict.fromkeys((config.NC_DIRS[ug], config.UPLOAD_NC_DIRS[ug], config.DADOS_NC_DIRS[ug])):
+        pastas_varredura = (
+            config.NC_DIRS[ug],
+            config.UPLOAD_NC_DIRS[ug],
+            config.DADOS_NC_DIRS[ug],
+            config.REPO / "Acervo-Empenhos-BCMS-2026" / "Notas de Crédito" / ug,
+            config.REPO / "EMPENHOS" / "Notas de Crédito" / ug,
+        )
+        for pasta in dict.fromkeys(pastas_varredura):
             if not pasta.is_dir():
                 continue
             for pdf in sorted(pasta.glob("*.pdf")):

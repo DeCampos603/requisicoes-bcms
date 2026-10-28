@@ -316,61 +316,84 @@ def consultar_pncp_em_andamento(forcar_atualizacao: bool = False, progresso: Cal
         except Exception as e:
             log.warning("Falha ao ler cache PNCP: %s", e)
 
-    progresso("  Consultando API pública do PNCP para 24 OMs parceiras (anos 2026/2025)...")
+    progresso("  Consultando API pública do PNCP para OMs parceiras (anos 2026/2025)...")
     uasgs_map = carregar_catalogo_uasgs()
-    tarefas = []
+    uasgs_alvo = {u for u, _ in UASGS_PARCEIRAS} | set(uasgs_map.keys())
 
     ano_atual = date.today().year
     hoje_iso = date.today().strftime("%Y%m%d")
+    ano_ant = ano_atual - 1
 
-    for uasg, nome in UASGS_PARCEIRAS:
-        # Ano corrente
-        tarefas.append((uasg, nome, str(ano_atual), f"{ano_atual}0101", hoje_iso))
-        # Ano anterior (muitos pregões vigentes foram abertos no ano anterior)
-        ano_ant = ano_atual - 1
-        tarefas.append((uasg, nome, str(ano_ant), f"{ano_ant}0101", f"{ano_ant}1231"))
+    # Janelas semestrais em UF=RJ (evita o rate-limit HTTP 429 do PNCP causado por 48 chamadas simultâneas por UASG)
+    janelas = [
+        (f"{ano_atual}0701", hoje_iso),
+        (f"{ano_atual}0101", f"{ano_atual}0630"),
+        (f"{ano_ant}0701", f"{ano_ant}1231"),
+        (f"{ano_ant}0101", f"{ano_ant}0630"),
+    ]
 
-    def _consultar_uasg(args):
-        u, n, ano, d_ini, d_fim = args
+    def _baixar_pagina(d_ini: str, d_fim: str, pagina: int) -> dict:
         url = (f"https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao?"
                f"dataInicial={d_ini}&dataFinal={d_fim}&codigoModalidadeContratacao=6&"
-               f"cnpj=00394452000103&codigoUnidadeAdministrativa={u}&pagina=1&tamanhoPagina=20")
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Accept": "application/json"})
-        compras = []
-        try:
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                d = json.loads(resp.read())
-                for c in d.get("data", []):
-                    seq = c.get("numeroSequencialCompra")
-                    ano_c = c.get("anoCompra")
-                    link_edital = f"https://pncp.gov.br/app/editais/00394452000103/{ano_c}/{seq}" if (seq and ano_c) else (c.get("linkSistemaOrigem") or "")
-                    compras.append({
-                        "ugg": u,
-                        "om_nome": uasgs_map.get(u, n),
-                        "numero": c.get("numeroCompra"),
-                        "ano": ano_c,
-                        "processo": c.get("processo") or "-",
-                        "situacao": c.get("situacaoCompraNome") or "Publicada",
-                        "srp": bool(c.get("srp")),
-                        "objeto": c.get("objetoCompra") or "",
-                        "valor_estimado": float(parse_decimal(c.get("valorTotalEstimado") or "0")),
-                        "valor_homologado": float(parse_decimal(c.get("valorTotalHomologado") or "0")),
-                        "data_publicacao": c.get("dataPublicacaoPncp")[:10] if c.get("dataPublicacaoPncp") else "-",
-                        "data_abertura": c.get("dataAberturaProposta")[:16].replace("T", " ") if c.get("dataAberturaProposta") else "-",
-                        "data_encerramento": c.get("dataEncerramentoProposta")[:16].replace("T", " ") if c.get("dataEncerramentoProposta") else "-",
-                        "link_pncp": link_edital,
-                        "link_origem": c.get("linkSistemaOrigem") or "",
-                    })
-        except Exception:
-            pass  # timeout ou uasg sem licitação no ano é esperado
-        return compras
+               f"cnpj=00394452000103&uf=RJ&pagina={pagina}&tamanhoPagina=50")
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Accept": "application/json"},
+        )
+        for tent in range(1, 4):
+            try:
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    if resp.status == 204:
+                        return {}
+                    txt = resp.read().decode("utf-8", "ignore").strip()
+                    return json.loads(txt) if txt else {}
+            except Exception as e:
+                if tent == 3:
+                    log.warning("Timeout/erro PNCP (%s..%s pág %s): %s", d_ini, d_fim, pagina, e)
+                    return {}
+                time.sleep(1.5 * tent)
+        return {}
 
     t0 = time.time()
     todos_pregoes: list[dict] = []
-    # Concorrência rápida com 8 threads
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        for lotes in executor.map(_consultar_uasg, tarefas):
-            todos_pregoes.extend(lotes)
+    for d_ini, d_fim in janelas:
+        if d_ini > hoje_iso:
+            continue
+        prim = _baixar_pagina(d_ini, min(d_fim, hoje_iso), 1)
+        tot_pags = min(int(prim.get("totalPaginas") or 1), 12)
+        paginas_dados = [prim.get("data") or []]
+        for pag in range(2, tot_pags + 1):
+            time.sleep(0.35)
+            d_pag = _baixar_pagina(d_ini, min(d_fim, hoje_iso), pag)
+            if d_pag.get("data"):
+                paginas_dados.append(d_pag["data"])
+        for lote in paginas_dados:
+            for c in lote:
+                unid = c.get("unidadeOrgao") or {}
+                u = str(unid.get("codigoUnidade") or "").strip()
+                if u not in uasgs_alvo:
+                    continue
+                seq = c.get("numeroSequencialCompra")
+                ano_c = c.get("anoCompra")
+                link_edital = (f"https://pncp.gov.br/app/editais/00394452000103/{ano_c}/{seq}"
+                               if (seq and ano_c) else (c.get("linkSistemaOrigem") or ""))
+                todos_pregoes.append({
+                    "ugg": u,
+                    "om_nome": uasgs_map.get(u) or unid.get("nomeUnidade") or f"UASG {u}",
+                    "numero": str(c.get("numeroCompra") or "").strip(),
+                    "ano": ano_c,
+                    "processo": c.get("processo") or "-",
+                    "situacao": c.get("situacaoCompraNome") or "Publicada",
+                    "srp": bool(c.get("srp")),
+                    "objeto": c.get("objetoCompra") or "",
+                    "valor_estimado": float(parse_decimal(c.get("valorTotalEstimado") or "0")),
+                    "valor_homologado": float(parse_decimal(c.get("valorTotalHomologado") or "0")),
+                    "data_publicacao": c.get("dataPublicacaoPncp")[:10] if c.get("dataPublicacaoPncp") else "-",
+                    "data_abertura": c.get("dataAberturaProposta")[:16].replace("T", " ") if c.get("dataAberturaProposta") else "-",
+                    "data_encerramento": c.get("dataEncerramentoProposta")[:16].replace("T", " ") if c.get("dataEncerramentoProposta") else "-",
+                    "link_pncp": link_edital,
+                    "link_origem": c.get("linkSistemaOrigem") or "",
+                })
 
     progresso(f"  PNCP: {len(todos_pregoes)} licitações catalogadas em {time.time() - t0:.1f}s.")
 
@@ -383,10 +406,15 @@ def consultar_pncp_em_andamento(forcar_atualizacao: bool = False, progresso: Cal
             vistos.add(chave)
             unicos.append(p)
 
-    # Grava cache local atômico
+    # Grava cache local atômico (só sobrescreve se obteve dados ou se ainda não existia cache válido)
     try:
         cache_data = {"timestamp": time.time(), "data_consulta": datetime.now().strftime("%d/%m/%Y %H:%M"), "total": len(unicos), "pregoes": unicos}
-        cache_path.write_text(json.dumps(cache_data, ensure_ascii=False, indent=1), encoding="utf-8")
+        if unicos or not cache_path.is_file():
+            cache_path.write_text(json.dumps(cache_data, ensure_ascii=False, indent=1), encoding="utf-8")
+            # Sincroniza também com Dashboard-Pregoes-BCMS/data/pncp_cache.json
+            dash_cache = config.REPO / "Dashboard-Pregoes-BCMS" / "data" / "pncp_cache.json"
+            if dash_cache.parent.is_dir():
+                dash_cache.write_text(json.dumps(cache_data, ensure_ascii=False, indent=1), encoding="utf-8")
     except Exception as e:
         log.warning("Falha ao gravar cache PNCP: %s", e)
 
