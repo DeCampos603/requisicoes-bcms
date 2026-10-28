@@ -33,6 +33,7 @@ const tocados = new Set(); // campos que o usuário já tocou (mensagem inline s
 let tentouGerar = false;
 let temporizador = null;
 let seqValidacao = 0;
+let termoBuscaPregaoSalvo = '';
 const cacheSugestao = new Map();
 const cachePregao = new Map();
 const cacheNE = new Map();
@@ -45,12 +46,14 @@ function novoCabecalho() {
 }
 function estadoInicial(t) {
   if (t === 'requisicao') {
+    const fPadrao = { nc: '', emitente: '', ug: '', celula: '', nd_destino: '', nc_detalhamento: '' };
     return {
       objeto: '', modalidade: 'PREGAO', cabecalho: novoCabecalho(),
       licitacao: { pregao_id: null, tipo_unidade: '', numero: '', fundamento_dispensa: '', fundamento_inexigibilidade: '', fundamento_detalhe: '', manual: null },
       adesao: { autorizacao_data: '', aceite_fornecedor: false, ata_federal: false, documentos: {} },
       finalidade: { id: '', outra: '', detalhe: '' },
-      fonte: { nc: '', emitente: '', ug: '', celula: '', nd_destino: '', nc_detalhamento: '' },
+      fonte: { ...fPadrao },
+      fontes: [{ ...fPadrao }],
       tipo_empenho: '', contrato: { possui: false, numero: '', hipotese: '' },
       pca: { consta: true, classe: '', contratacao: '', justificativa: '' },
       fornecedores: [], anexar_nc: true, alertas_ciente: [],
@@ -79,6 +82,12 @@ function carregarRascunho(t) {
   const base = estadoInicial(t);
   const r = salvo ? mesclar(base, salvo) : base;
   if (r.cabecalho && r.cabecalho.data !== hojeISO()) r.cabecalho.data = hojeISO(); // rascunho de outro dia: o documento leva a data de hoje
+  if (t === 'requisicao') {
+    if (!Array.isArray(r.fontes) || !r.fontes.length) {
+      r.fontes = [r.fonte || { nc: '', emitente: '', ug: '', celula: '', nd_destino: '', nc_detalhamento: '' }];
+    }
+    r.fonte = r.fontes[0];
+  }
   return r;
 }
 function atualizarIndicadorAutoSave() {
@@ -301,164 +310,414 @@ function secIdentificacao(num, id = 'sec-identificacao') {
 // ---------------------------------------------------------------- seção: fonte de recurso (NC) — requisição e reforço
 function secFonte(num, sub) {
   return cartao(num, 'Fonte de recurso (Nota de Crédito)', sub,
-    `<div class="grade">
-      ${campo({ rotulo: 'Nº da NC', bind: 'fonte.nc', mascara: 'nc', placeholder: '2026NC415767', ajuda: 'A NC precisa estar no repositório; se não estiver, você envia o PDF aqui.' })}
-      <div class="campo largo" data-campo="busca-nc-desc">
-        <label for="busca-nc-desc">🔍 Pesquisar NC pela descrição, finalidade, PI, ND ou UG emitente</label>
-        <div class="busca">
-          <input id="busca-nc-desc" type="search" placeholder="Ex.: aquisição de peças, viatura, 339030, I3DAFUNADOM, DGO, 415767…" autocomplete="off" aria-autocomplete="list" aria-controls="res-nc-desc">
-          <div class="resultados" id="res-nc-desc" hidden></div>
-        </div>
-        <span class="ajuda">Busca palavras-chave no texto completo das Notas de Crédito (PDFs e extrato SIAFI). Clique em uma NC para preenchê-la automaticamente.</span>
-      </div>
-    </div><div id="fonte-dinamica"></div>`, 'sec-fonte');
+    `<div id="fonte-dinamica"></div>`, 'sec-fonte');
 }
 
 function ligarBuscaNC() {
-  const inp = $('#busca-nc-desc');
-  const res = $('#res-nc-desc');
-  if (!inp || !res) return;
-  let t;
-  const buscar = async () => {
-    try {
-      const q = inp.value.trim();
-      const lista = await api(`/api/ncs?q=${encodeURIComponent(q)}&limite=60`);
-      if (!lista.length) {
-        res.innerHTML = '<div class="vazio">Nenhuma Nota de Crédito encontrada para o termo digitado.</div>';
-        res.hidden = false;
-        return;
-      }
-      res.innerHTML = `<div class="res-cabecalho">${lista.length >= 60 ? '60+' : lista.length} Nota(s) de Crédito encontrada(s)</div>
-        <ul>${lista.map((n) => {
-          const saldoTxt = n.saldo_disponivel > 0.005
-            ? `<span style="color:var(--ok,#15803d);font-weight:700">Saldo: ${brlNum(n.saldo_disponivel)}</span>`
-            : `<span style="color:var(--muted,#64748b)">Saldo: R$ 0,00</span>`;
-          const pdfTag = n.tem_pdf
-            ? `<span class="badge-ug badge-ug-ogu" style="font-size:0.7rem">PDF no Repositório</span>`
-            : `<span class="badge-ug" style="font-size:0.7rem;background:var(--surface-2);color:var(--muted)">Extrato SIAFI</span>`;
-          const desc = n.descricao || n.descricao_siafi || '(Sem descrição)';
-          const ndsTxt = (n.nds && n.nds.length) ? `ND ${n.nds.join(', ')}` : '';
-          const pisTxt = (n.pis && n.pis.length) ? `PI ${n.pis.join(', ')}` : '';
-          const metaOrc = [ndsTxt, pisTxt, n.data_emissao].filter(Boolean).join(' · ');
-          return `<li><button type="button" data-nc-chave="${esc(n.chave)}" data-nc-emit="${esc(n.emitente)}">
-            <div class="item-busca-ne">
-              <div class="linha-ne-empresa" style="justify-content:space-between;display:flex;gap:8px;flex-wrap:wrap">
-                <span><strong>${esc(n.chave)}</strong> · UG Emit. ${esc(n.emitente)} (${esc(n.sigla_emitente || n.nome_emitente || '')})</span>
-                <span>${pdfTag} · ${saldoTxt}</span>
-              </div>
-              ${metaOrc ? `<div class="linha-ne-sub"><small>${esc(metaOrc)}</small></div>` : ''}
-              <div class="linha-ne-sub" style="margin-top:2px;color:var(--text)"><small>${esc(desc.slice(0, 180))}${desc.length > 180 ? '…' : ''}</small></div>
-            </div>
-          </button></li>`;
-        }).join('')}</ul>`;
-      res.hidden = false;
-    } catch (e) {
-      toast(e.message);
-    }
-  };
-  inp.addEventListener('input', () => { clearTimeout(t); t = setTimeout(buscar, 220); });
-  inp.addEventListener('focus', buscar);
-  res.addEventListener('click', (ev) => {
-    const b = ev.target.closest('[data-nc-chave]');
-    if (!b) return;
-    res.hidden = true;
-    inp.value = '';
-    const st = estados[tipo];
-    if (!st) return;
-    st.fonte = {
-      ...st.fonte,
-      nc: b.dataset.ncChave,
-      emitente: b.dataset.ncEmit || '',
-      ug: '',
-      celula: '',
-      nd_destino: '',
-      nc_detalhamento: '',
-    };
-    const campoNc = $('[data-bind="fonte.nc"]');
-    if (campoNc) campoNc.value = b.dataset.ncChave;
-    tocados.add('fonte.nc');
-    salvarRascunho();
-    agendar(true);
-    toast(`Nota de Crédito ${b.dataset.ncChave} selecionada!`);
-  });
-  document.addEventListener('click', (ev) => {
-    if (!ev.target.closest('[data-campo="busca-nc-desc"]')) res.hidden = true;
-  });
+  // Chamado na inicializacao; o binding ativo agora reside no renderFonte() dinâmico
 }
 
 let envioNcAberto = false;
 function renderFonte() {
   const el = $('#fonte-dinamica'); if (!el) return;
-  const st = estados[tipo]; const v = ultimo[tipo]; const r = v?.resumo?.fonte;
-  const achados = (v?.achados || []).filter((a) => a.campo.startsWith('fonte'));
-  let h = '';
-  const up = achados.find((a) => a.acao === 'upload_nc');
-  if (up) {
-    h += `<div class="dica erro" style="margin-top:12px"><p><strong>NC não encontrada no repositório.</strong> ${esc(up.mensagem)}</p>
-      <div class="linha-botoes"><input type="file" id="up-nc" accept="application/pdf" aria-label="PDF da Nota de Crédito"><button type="button" class="btn-primario" id="btn-up-nc">Enviar NC</button></div></div>`;
-  }
-  if (r?.candidatas) {
-    h += `<div class="grade" style="margin-top:12px">${campo({ rotulo: 'UG emitente da NC', bind: 'fonte.emitente', opcoes: r.candidatas.map((c) => ({ v: c.emitente, t: `${c.emitente} — ${c.nome_emitente || 'sem nome'}${c.arquivo_no_repositorio ? '' : ' (sem PDF)'}` })), ajuda: 'Há mais de uma NC com este número.' })}</div>`;
-  }
-  if (r?.escolher_celula) {
-    if (!st.fonte.ug && r.ug) st.fonte.ug = r.ug;
-    h += `<div class="grade" style="margin-top:12px">`;
-    h += campo({ rotulo: 'UG executora', bind: 'fonte.ug', opcoes: Object.entries(CFG.unidade.ugs).map(([ug, d]) => ({ v: ug, t: `${ug} — ${d.rotulo}` })) });
-    h += campo({ rotulo: 'Célula de destino da NC', bind: 'fonte.celula', opcoes: r.celulas.map((c, i) => ({ v: i, t: `ND ${c.nd} · PI ${c.pi || '—'} · PTRES ${c.ptres} · ${brlNum(c.valor)}` })), largo: true, ajuda: 'A NC tem mais de uma célula de destino: escolha a que será empenhada (ND, PI e PTRES saem dela).' });
-    h += '</div>';
-  } else if (r && !r.candidatas) {
-    if (!st.fonte.ug && r.ug) st.fonte.ug = r.ug; // mostra no menu a UG que o servidor já resolveu
-    h += `<div class="grade" style="margin-top:12px">`;
-    h += campo({ rotulo: 'UG executora', bind: 'fonte.ug', opcoes: Object.entries(CFG.unidade.ugs).map(([ug, d]) => ({ v: ug, t: `${ug} — ${d.rotulo}` })) });
-    if (r.celulas.length > 1) {
-      h += campo({ rotulo: 'Célula de destino da NC', bind: 'fonte.celula', opcoes: r.celulas.map((c, i) => ({ v: i, t: `ND ${c.nd} · PI ${c.pi || '—'} · PTRES ${c.ptres} · ${brlNum(c.valor)}` })), largo: true });
+  const st = estados[tipo]; const v = ultimo[tipo];
+  if (!st) return;
+
+  if (tipo === 'requisicao') {
+    if (!Array.isArray(st.fontes) || !st.fontes.length) {
+      st.fontes = [st.fonte || { nc: '', emitente: '', ug: '', celula: '', nd_destino: '', nc_detalhamento: '' }];
     }
-    h += '</div>';
-    const ndTxt = r.indetalhada ? `${r.nd_origem} → ${r.detalhamento?.nd_destino || '?'}` : r.nd;
-    h += `<div class="tabela-rolagem" style="margin-top:12px"><table><caption class="sr-only">Classificação orçamentária lida da NC</caption><thead><tr><th>NC</th><th>Emitente</th><th>UG</th><th>ND</th><th>PI</th><th>PTRES</th><th>UGR</th><th>Fonte</th></tr></thead>
-      <tbody><tr><td class="nowrap">${esc(r.nc)}</td><td>${esc(r.emitente)} ${esc(r.nome_emitente || '')}</td><td>${esc(r.ug)}</td><td class="nowrap"><strong>${esc(ndTxt)}</strong></td><td>${esc(r.pi || '—')}</td><td>${esc(r.ptres)}</td><td>${esc(r.ugr)}</td><td>${esc(r.fonte_rec)}</td></tr></tbody></table></div>`;
-    if (r.credito) {
-      h += `<p class="dica" style="margin-top:10px">Crédito disponível no dashboard (${esc(r.credito.origem || 'NC')}): <strong>${brlNum(r.credito.disponivel)}</strong> · posição ${esc(r.credito.posicao || '—')}. Confirme no Tesouro Gerencial antes de empenhar.</p>`;
-    }
-    if (r.prazo_empenho) h += `<p class="dica" style="margin-top:8px">Prazo de empenho citado na NC: <strong>${fmtData(r.prazo_empenho)}</strong>.</p>`;
-    if (r.indetalhada) {
-      let cand = r.nds_candidatas || [];
-      if (!cand.length) {
-        const pfx = (r.nd_origem || '339000').slice(0, 4);
-        cand = [
-          { nd: `${pfx}30`, nome: 'MATERIAL DE CONSUMO' },
-          { nd: `${pfx}39`, nome: 'OUTROS SERVIÇOS DE TERCEIROS - PESSOA JURÍDICA' },
-          { nd: `${pfx}36`, nome: 'OUTROS SERVIÇOS DE TERCEIROS - PESSOA FÍSICA' },
-          { nd: `${pfx}37`, nome: 'LOCAÇÃO DE MÃO-DE-OBRA' },
-          { nd: `${pfx}40`, nome: 'SERVIÇOS DE TECNOLOGIA DA INFORMAÇÃO E COMUNICAÇÃO - PJ' },
-          { nd: `${pfx}33`, nome: 'PASSAGENS E DESPESAS COM LOCOMOÇÃO' },
-          { nd: `${pfx}35`, nome: 'SERVIÇOS DE CONSULTORIA' },
-          { nd: `${pfx}52`, nome: 'EQUIPAMENTOS E MATERIAL PERMANENTE' },
-        ];
+    st.fonte = st.fontes[0];
+
+    let h = `<div class="lista-fontes-nc" style="display:flex; flex-direction:column; gap:16px">`;
+    st.fontes.forEach((fItem, fi) => {
+      const r = (v?.resumo?.fontes && v.resumo.fontes[fi]) ? v.resumo.fontes[fi] : (fi === 0 ? v?.resumo?.fonte : null);
+      const achados = (v?.achados || []).filter((a) => a.campo.startsWith(`fontes[${fi}]`) || (fi === 0 && a.campo.startsWith('fonte')));
+      const up = achados.find((a) => a.acao === 'upload_nc');
+
+      h += `<div class="cartao-fonte-nc">
+        <div class="cabecalho-fonte-nc">
+          <h4 class="titulo-fonte-nc">
+            <strong>Nota de Crédito #${fi + 1}</strong>${fi === 0 ? ' <span class="badge-ug badge-ug-ogu" style="font-size:0.75rem; vertical-align:middle; margin-left:6px">Principal</span>' : ''}
+          </h4>
+          ${st.fontes.length > 1 ? `<button type="button" class="btn-leve btn-perigo" data-rm-nc="${fi}" style="font-size:0.85rem">✕ Remover NC</button>` : ''}
+        </div>
+        <div class="grade">
+          ${campo({ rotulo: `Nº da NC #${fi + 1}`, bind: `fontes[${fi}].nc`, mascara: 'nc', placeholder: '2026NC415767', ajuda: 'A NC precisa estar no repositório.' })}
+          <div class="campo largo" data-campo="busca-nc-desc-${fi}">
+            <label for="busca-nc-desc-${fi}">🔍 Pesquisar NC (descrição, finalidade, PI, ND ou UG)</label>
+            <div class="busca">
+              <input id="busca-nc-desc-${fi}" class="inp-busca-nc-multi" data-nc-idx="${fi}" type="search" placeholder="Ex.: peças, viatura, 339030, DGO, 415767…" autocomplete="off">
+              <div class="resultados res-nc-desc-multi" id="res-nc-desc-${fi}" hidden></div>
+            </div>
+            <span class="ajuda">Clique na NC pesquisada para preenchê-la automaticamente.</span>
+          </div>
+        </div>`;
+
+      if (up) {
+        h += `<div class="dica erro" style="margin-top:12px"><p><strong>NC não encontrada no repositório.</strong> ${esc(up.mensagem)}</p>
+          <div class="linha-botoes"><input type="file" id="up-nc-${fi}" accept="application/pdf" aria-label="PDF da Nota de Crédito"><button type="button" class="btn-primario" data-btn-up-nc="${fi}">Enviar NC</button></div></div>`;
       }
-      const sug = r.nd_destino_sugerida;
-      h += `<div class="dica info" style="margin-top:12px"><p><strong>NC com ND ${esc(r.nd_origem)} (crédito indetalhado).</strong> O crédito será detalhado para a ND de destino antes do empenho no SIAFI.${sug ? ` Sugestão pelos itens: <strong>${esc(sug)}</strong>.` : ''}</p>
-        <div class="grade">${campo({ rotulo: 'ND de destino do detalhamento', bind: 'fonte.nd_destino', opcoes: cand.map((c) => ({ v: c.nd, t: `${c.nd} — ${c.nome}` })), largo: true, ajuda: 'A NC de detalhamento será emitida no SIAFI pelo setor financeiro após o despacho e autorização da requisição.' })}</div></div>`;
+
+      if (r?.candidatas) {
+        h += `<div class="grade" style="margin-top:12px">${campo({ rotulo: 'UG emitente da NC', bind: `fontes[${fi}].emitente`, opcoes: r.candidatas.map((c) => ({ v: c.emitente, t: `${c.emitente} — ${c.nome_emitente || 'sem nome'}${c.arquivo_no_repositorio ? '' : ' (sem PDF)'}` })), ajuda: 'Há mais de uma NC com este número.' })}</div>`;
+      }
+
+      if (r?.escolher_celula) {
+        if (!fItem.ug && r.ug) fItem.ug = r.ug;
+        h += `<div class="grade" style="margin-top:12px">`;
+        h += campo({ rotulo: 'UG executora', bind: `fontes[${fi}].ug`, opcoes: Object.entries(CFG.unidade.ugs).map(([ug, d]) => ({ v: ug, t: `${ug} — ${d.rotulo}` })) });
+        h += campo({ rotulo: 'Célula de destino da NC', bind: `fontes[${fi}].celula`, opcoes: r.celulas.map((c, i) => ({ v: i, t: `ND ${c.nd} · PI ${c.pi || '—'} · PTRES ${c.ptres} · ${brlNum(c.valor)}` })), largo: true, ajuda: 'Escolha a célula a ser empenhada.' });
+        h += '</div>';
+      } else if (r && !r.candidatas) {
+        if (!fItem.ug && r.ug) fItem.ug = r.ug;
+        h += `<div class="grade" style="margin-top:12px">`;
+        h += campo({ rotulo: 'UG executora', bind: `fontes[${fi}].ug`, opcoes: Object.entries(CFG.unidade.ugs).map(([ug, d]) => ({ v: ug, t: `${ug} — ${d.rotulo}` })) });
+        if (r.celulas && r.celulas.length > 1) {
+          h += campo({ rotulo: 'Célula de destino da NC', bind: `fontes[${fi}].celula`, opcoes: r.celulas.map((c, i) => ({ v: i, t: `ND ${c.nd} · PI ${c.pi || '—'} · PTRES ${c.ptres} · ${brlNum(c.valor)}` })), largo: true });
+        }
+        h += '</div>';
+        const ndTxt = r.indetalhada ? `${r.nd_origem} → ${r.detalhamento?.nd_destino || '?'}` : r.nd;
+        h += `<div class="tabela-rolagem" style="margin-top:12px"><table><caption class="sr-only">Classificação orçamentária da NC #${fi + 1}</caption><thead><tr><th>NC</th><th>Emitente</th><th>UG</th><th>ND</th><th>PI</th><th>PTRES</th><th>UGR</th><th>Fonte</th></tr></thead>
+          <tbody><tr><td class="nowrap">${esc(r.nc)}</td><td>${esc(r.emitente)} ${esc(r.nome_emitente || '')}</td><td>${esc(r.ug)}</td><td class="nowrap"><strong>${esc(ndTxt)}</strong></td><td>${esc(r.pi || '—')}</td><td>${esc(r.ptres)}</td><td>${esc(r.ugr)}</td><td>${esc(r.fonte_rec)}</td></tr></tbody></table></div>`;
+        if (r.credito) {
+          h += `<p class="dica" style="margin-top:10px">Crédito disponível no dashboard (${esc(r.credito.origem || 'NC')}): <strong>${brlNum(r.credito.disponivel)}</strong> · posição ${esc(r.credito.posicao || '—')}.</p>`;
+        }
+        if (r.prazo_empenho) h += `<p class="dica" style="margin-top:8px">Prazo de empenho citado na NC: <strong>${fmtData(r.prazo_empenho)}</strong>.</p>`;
+        if (r.indetalhada) {
+          let cand = r.nds_candidatas || [];
+          if (!cand.length) {
+            const pfx = (r.nd_origem || '339000').slice(0, 4);
+            cand = [
+              { nd: `${pfx}30`, nome: 'MATERIAL DE CONSUMO' },
+              { nd: `${pfx}39`, nome: 'OUTROS SERVIÇOS DE TERCEIROS - PESSOA JURÍDICA' },
+              { nd: `${pfx}36`, nome: 'OUTROS SERVIÇOS DE TERCEIROS - PESSOA FÍSICA' },
+              { nd: `${pfx}37`, nome: 'LOCAÇÃO DE MÃO-DE-OBRA' },
+              { nd: `${pfx}40`, nome: 'SERVIÇOS DE TECNOLOGIA DA INFORMAÇÃO E COMUNICAÇÃO - PJ' },
+              { nd: `${pfx}33`, nome: 'PASSAGENS E DESPESAS COM LOCOMOÇÃO' },
+              { nd: `${pfx}35`, nome: 'SERVIÇOS DE CONSULTORIA' },
+              { nd: '449052', nome: 'EQUIPAMENTOS E MATERIAL PERMANENTE' },
+            ];
+          }
+          const sug = r.nd_destino_sugerida;
+          h += `<div class="dica info" style="margin-top:12px"><p><strong>NC com ND ${esc(r.nd_origem)} (crédito indetalhado).</strong> O crédito será detalhado para a ND de destino antes do empenho no SIAFI.${sug ? ` Sugestão pelos itens: <strong>${esc(sug)}</strong>.` : ''}</p>
+            <div class="grade">${campo({ rotulo: 'ND de destino do detalhamento', bind: `fontes[${fi}].nd_destino`, opcoes: cand.map((c) => ({ v: c.nd, t: `${c.nd} — ${c.nome}` })), largo: true })}</div></div>`;
+        }
+      }
+
+      if (!up) {
+        h += `<details class="envio-nc" style="margin-top:10px"><summary>Enviar PDF da NC #${fi + 1} (se não estiver no repositório)</summary>
+          <div class="linha-botoes" style="margin-top:8px"><input type="file" id="up-nc-${fi}" accept="application/pdf" aria-label="PDF da Nota de Crédito"><button type="button" class="btn-primario" data-btn-up-nc="${fi}">Enviar NC</button></div></details>`;
+      }
+
+      h += `</div>`;
+    });
+    h += `</div>`;
+
+    h += `<div class="linha-botoes" style="margin-top:14px">
+      <button type="button" id="btn-add-nc" class="btn-secundario" style="font-weight:600">➕ Adicionar outra Nota de Crédito</button>
+    </div>`;
+
+    if (st.fontes.length > 1 && v?.resumo?.fontes) {
+      const somaCred = v.resumo.fontes.reduce((acc, rf) => acc + (rf.credito?.disponivel ? parseDec(String(rf.credito.disponivel)) : 0n), 0n);
+      h += `<div class="dica info" style="margin-top:12px">
+        <strong>${st.fontes.length} Notas de Crédito adicionadas à requisição.</strong>
+        ${somaCred > 0n ? ` Soma do crédito disponível: <strong>${fmtCentavos(somaCred)}</strong>.` : ''}
+      </div>`;
     }
+
+    el.innerHTML = h;
+    sincronizarCampos(el);
+
+    $('#btn-add-nc', el)?.addEventListener('click', () => {
+      st.fontes.push({ nc: '', emitente: '', ug: '', celula: '', nd_destino: '', nc_detalhamento: '' });
+      st.fonte = st.fontes[0];
+      renderFonte();
+      agendar(true);
+    });
+
+    $$('[data-rm-nc]', el).forEach((b) => b.addEventListener('click', () => {
+      const idx = parseInt(b.dataset.rmNc, 10);
+      st.fontes.splice(idx, 1);
+      if (!st.fontes.length) st.fontes.push({ nc: '', emitente: '', ug: '', celula: '', nd_destino: '', nc_detalhamento: '' });
+      st.fonte = st.fontes[0];
+      renderFonte();
+      agendar(true);
+    }));
+
+    $$('.inp-busca-nc-multi', el).forEach((inpMulti) => {
+      const fi = parseInt(inpMulti.dataset.ncIdx, 10);
+      const resMulti = $(`#res-nc-desc-${fi}`);
+      if (!resMulti) return;
+      let tMulti;
+      const buscarMulti = async () => {
+        try {
+          const q = inpMulti.value.trim();
+          const lista = await api(`/api/ncs?q=${encodeURIComponent(q)}&limite=60`);
+          if (!lista.length) {
+            resMulti.innerHTML = '<div class="vazio">Nenhuma Nota de Crédito encontrada para o termo digitado.</div>';
+            resMulti.hidden = false;
+            return;
+          }
+          resMulti.innerHTML = `<div class="res-cabecalho">${lista.length >= 60 ? '60+' : lista.length} Nota(s) de Crédito encontrada(s)</div>
+            <ul>${lista.map((n) => {
+              const saldoTxt = n.saldo_disponivel > 0.005
+                ? `<span style="color:var(--ok,#15803d);font-weight:700">Saldo: ${brlNum(n.saldo_disponivel)}</span>`
+                : `<span style="color:var(--muted,#64748b)">Saldo: R$ 0,00</span>`;
+              const pdfTag = n.tem_pdf
+                ? `<span class="badge-ug badge-ug-ogu" style="font-size:0.7rem">PDF no Repositório</span>`
+                : `<span class="badge-ug" style="font-size:0.7rem;background:var(--surface-2);color:var(--muted)">Extrato SIAFI</span>`;
+              const desc = n.descricao || n.descricao_siafi || '(Sem descrição)';
+              const ndsTxt = (n.nds && n.nds.length) ? `ND ${n.nds.join(', ')}` : '';
+              const pisTxt = (n.pis && n.pis.length) ? `PI ${n.pis.join(', ')}` : '';
+              const metaOrc = [ndsTxt, pisTxt, n.data_emissao].filter(Boolean).join(' · ');
+              return `<li><button type="button" data-nc-chave="${esc(n.chave)}" data-nc-emit="${esc(n.emitente)}" data-nc-idx="${fi}">
+                <div class="item-busca-ne">
+                  <div class="linha-ne-empresa" style="justify-content:space-between;display:flex;gap:8px;flex-wrap:wrap">
+                    <span><strong>${esc(n.chave)}</strong> · UG Emit. ${esc(n.emitente)} (${esc(n.sigla_emitente || n.nome_emitente || '')})</span>
+                    <span>${pdfTag} · ${saldoTxt}</span>
+                  </div>
+                  ${metaOrc ? `<div class="linha-ne-sub"><small>${esc(metaOrc)}</small></div>` : ''}
+                  <div class="linha-ne-sub" style="margin-top:2px;color:var(--text)"><small>${esc(desc.slice(0, 180))}${desc.length > 180 ? '…' : ''}</small></div>
+                </div>
+              </button></li>`;
+            }).join('')}</ul>`;
+          resMulti.hidden = false;
+        } catch (e) { toast(e.message); }
+      };
+      inpMulti.addEventListener('input', () => { clearTimeout(tMulti); tMulti = setTimeout(buscarMulti, 220); });
+      inpMulti.addEventListener('focus', buscarMulti);
+    });
+
+    $$('.res-nc-desc-multi', el).forEach((resMulti) => {
+      resMulti.addEventListener('click', (ev) => {
+        const b = ev.target.closest('[data-nc-chave]');
+        if (!b) return;
+        const fi = parseInt(b.dataset.ncIdx, 10);
+        resMulti.hidden = true;
+        const inp = $(`#busca-nc-desc-${fi}`);
+        if (inp) inp.value = '';
+        if (st.fontes && st.fontes[fi]) {
+          st.fontes[fi] = {
+            ...st.fontes[fi],
+            nc: b.dataset.ncChave,
+            emitente: b.dataset.ncEmit || '',
+            ug: '', celula: '', nd_destino: '', nc_detalhamento: '',
+          };
+          if (fi === 0) st.fonte = st.fontes[0];
+          const campoNc = $(`[data-bind="fontes[${fi}].nc"]`) || $('[data-bind="fonte.nc"]');
+          if (campoNc) campoNc.value = b.dataset.ncChave;
+          tocados.add(`fontes[${fi}].nc`);
+          salvarRascunho();
+          renderFonte();
+          agendar(true);
+          toast(`Nota de Crédito ${b.dataset.ncChave} selecionada para a fonte #${fi + 1}!`);
+        }
+      });
+    });
+
+    $$('[data-btn-up-nc]', el).forEach((btn) => {
+      const fi = parseInt(btn.dataset.btnUpNc, 10);
+      btn.onclick = async () => {
+        const f = $(`#up-nc-${fi}`)?.files[0];
+        const ncAtual = st.fontes[fi]?.nc;
+        if (!ncAtual) { toast('Digite antes o nº da NC no campo acima.'); return; }
+        if (!f) { toast('Escolha o PDF da NC.'); return; }
+        const fd = new FormData();
+        fd.append('arquivo', f);
+        fd.append('numero', ncAtual);
+        fd.append('emitente', st.fontes[fi]?.emitente || '');
+        btn.disabled = true;
+        try {
+          await api('/api/nc/upload', { method: 'POST', body: fd });
+          toast('NC enviada e conferida.');
+          await validar(true);
+        } catch (e) { toast(e.message); }
+        btn.disabled = false;
+      };
+    });
+
+    document.addEventListener('click', (ev) => {
+      if (!ev.target.closest('.busca')) $$('.res-nc-desc-multi').forEach(r => r.hidden = true);
+    });
+    return;
   }
-  if (!up) { // o envio fica sempre à mão: antes só aparecia depois de digitar um nº completo que não estivesse no repositório
-    h += `<details class="envio-nc" style="margin-top:12px"${envioNcAberto ? ' open' : ''}><summary>Enviar o PDF de uma NC que ainda não está no repositório</summary>
-      <p class="ajuda" style="margin:8px 0">Digite antes o nº da NC no campo acima. O PDF é conferido (é aquela NC, está contabilizada e favorece o BCMS) e fica guardado na pasta de NC do repositório.</p>
-      <div class="linha-botoes"><input type="file" id="up-nc" accept="application/pdf" aria-label="PDF da Nota de Crédito"><button type="button" class="btn-primario" id="btn-up-nc">Enviar NC</button></div></details>`;
+
+  // Reforço: formulário completo e dinâmico de Nota de Crédito
+  if (tipo === 'reforco') {
+    if (!st.fonte) st.fonte = { nc: '', emitente: '', ug: '', celula: '', nd_destino: '', nc_detalhamento: '' };
+    const r = v?.resumo?.fonte;
+    const neRes = v?.resumo?.ne;
+    const ncNe = neRes?.nc || neRes?.fonte || '';
+    const achados = (v?.achados || []).filter((a) => a.campo.startsWith('fonte'));
+    const up = achados.find((a) => a.acao === 'upload_nc');
+
+    let h = `
+      <div class="cartao-fonte-nc">
+        <div class="cabecalho-fonte-nc">
+          <h4 class="titulo-fonte-nc">
+            <strong>Nota de Crédito do Reforço</strong>
+            ${st.fonte.nc ? `<span class="badge-ug badge-ug-ogu" style="font-size:0.75rem">${esc(st.fonte.nc)}</span>` : ''}
+          </h4>
+          ${ncNe && st.fonte.nc !== ncNe ? `
+            <button type="button" class="btn-usar-nc-orig" id="btn-usar-nc-ne" title="Preencher com a mesma NC indicada na Nota de Empenho original">
+              💡 Usar NC da NE original (${esc(ncNe)})
+            </button>
+          ` : ''}
+        </div>
+
+        <div class="grade">
+          ${campo({ rotulo: 'Nº da NC (para o reforço)', bind: 'fonte.nc', mascara: 'nc', placeholder: ncNe || '2026NC415767', ajuda: 'A NC citada no empenho original ou uma nova NC na mesma célula orçamentária.' })}
+          <div class="campo largo" data-campo="busca-nc-desc-reforco">
+            <label for="busca-nc-desc-reforco">🔍 Pesquisar NC (descrição, finalidade, PI, ND ou UG)</label>
+            <div class="busca">
+              <input id="busca-nc-desc-reforco" type="search" placeholder="Ex.: peças, viatura, 339030, DGO, 415767…" autocomplete="off">
+              <div class="resultados" id="res-nc-desc-reforco" hidden></div>
+            </div>
+            <span class="ajuda">Clique na NC pesquisada para preenchê-la automaticamente.</span>
+          </div>
+        </div>
+    `;
+
+    if (up) {
+      h += `<div class="dica erro" style="margin-top:12px"><p><strong>NC não encontrada no repositório.</strong> ${esc(up.mensagem)}</p>
+        <div class="linha-botoes"><input type="file" id="up-nc" accept="application/pdf" aria-label="PDF da Nota de Crédito"><button type="button" class="btn-primario" id="btn-up-nc">Enviar NC</button></div></div>`;
+    }
+    if (r?.candidatas) {
+      h += `<div class="grade" style="margin-top:12px">${campo({ rotulo: 'UG emitente da NC', bind: 'fonte.emitente', opcoes: r.candidatas.map((c) => ({ v: c.emitente, t: `${c.emitente} — ${c.nome_emitente || 'sem nome'}${c.arquivo_no_repositorio ? '' : ' (sem PDF)'}` })), ajuda: 'Há mais de uma NC com este número.' })}</div>`;
+    }
+    if (r?.escolher_celula) {
+      if (!st.fonte.ug && r.ug) st.fonte.ug = r.ug;
+      h += `<div class="grade" style="margin-top:12px">`;
+      h += campo({ rotulo: 'UG executora', bind: 'fonte.ug', opcoes: Object.entries(CFG.unidade.ugs).map(([ug, d]) => ({ v: ug, t: `${ug} — ${d.rotulo}` })) });
+      h += campo({ rotulo: 'Célula de destino da NC', bind: 'fonte.celula', opcoes: r.celulas.map((c, i) => ({ v: i, t: `ND ${c.nd} · PI ${c.pi || '—'} · PTRES ${c.ptres} · ${brlNum(c.valor)}` })), largo: true, ajuda: 'A NC tem mais de uma célula de destino: escolha a que será empenhada.' });
+      h += '</div>';
+    } else if (r && !r.candidatas) {
+      if (!st.fonte.ug && r.ug) st.fonte.ug = r.ug;
+      h += `<div class="grade" style="margin-top:12px">`;
+      h += campo({ rotulo: 'UG executora', bind: 'fonte.ug', opcoes: Object.entries(CFG.unidade.ugs).map(([ug, d]) => ({ v: ug, t: `${ug} — ${d.rotulo}` })) });
+      if (r.celulas && r.celulas.length > 1) {
+        h += campo({ rotulo: 'Célula de destino da NC', bind: 'fonte.celula', opcoes: r.celulas.map((c, i) => ({ v: i, t: `ND ${c.nd} · PI ${c.pi || '—'} · PTRES ${c.ptres} · ${brlNum(c.valor)}` })), largo: true });
+      }
+      h += '</div>';
+      const ndTxt = r.indetalhada ? `${r.nd_origem} → ${r.detalhamento?.nd_destino || '?'}` : r.nd;
+      h += `<div class="tabela-rolagem" style="margin-top:12px"><table><caption class="sr-only">Classificação orçamentária lida da NC</caption><thead><tr><th>NC</th><th>Emitente</th><th>UG</th><th>ND</th><th>PI</th><th>PTRES</th><th>UGR</th><th>Fonte</th></tr></thead>
+        <tbody><tr><td class="nowrap">${esc(r.nc)}</td><td>${esc(r.emitente)} ${esc(r.nome_emitente || '')}</td><td>${esc(r.ug)}</td><td class="nowrap"><strong>${esc(ndTxt)}</strong></td><td>${esc(r.pi || '—')}</td><td>${esc(r.ptres)}</td><td>${esc(r.ugr)}</td><td>${esc(r.fonte_rec)}</td></tr></tbody></table></div>`;
+      if (r.credito) {
+        h += `<p class="dica" style="margin-top:10px">Crédito disponível no dashboard (${esc(r.credito.origem || 'NC')}): <strong>${brlNum(r.credito.disponivel)}</strong> · posição ${esc(r.credito.posicao || '—')}. Confirme no Tesouro Gerencial antes de empenhar.</p>`;
+      }
+      if (r.prazo_empenho) h += `<p class="dica" style="margin-top:8px">Prazo de empenho citado na NC: <strong>${fmtData(r.prazo_empenho)}</strong>.</p>`;
+      if (r.indetalhada) {
+        let cand = r.nds_candidatas || [];
+        if (!cand.length) {
+          const pfx = (r.nd_origem || '339000').slice(0, 4);
+          cand = [
+            { nd: `${pfx}30`, nome: 'MATERIAL DE CONSUMO' },
+            { nd: `${pfx}39`, nome: 'OUTROS SERVIÇOS DE TERCEIROS - PESSOA JURÍDICA' },
+            { nd: `${pfx}36`, nome: 'OUTROS SERVIÇOS DE TERCEIROS - PESSOA FÍSICA' },
+            { nd: `${pfx}37`, nome: 'LOCAÇÃO DE MÃO-DE-OBRA' },
+            { nd: `${pfx}40`, nome: 'SERVIÇOS DE TECNOLOGIA DA INFORMAÇÃO E COMUNICAÇÃO - PJ' },
+            { nd: `${pfx}33`, nome: 'PASSAGENS E DESPESAS COM LOCOMOÇÃO' },
+            { nd: `${pfx}35`, nome: 'SERVIÇOS DE CONSULTORIA' },
+            { nd: '449052', nome: 'EQUIPAMENTOS E MATERIAL PERMANENTE' },
+          ];
+        }
+        const sug = r.nd_destino_sugerida;
+        h += `<div class="dica info" style="margin-top:12px"><p><strong>NC com ND ${esc(r.nd_origem)} (crédito indetalhado).</strong> O crédito será detalhado para a ND de destino antes do empenho no SIAFI.${sug ? ` Sugestão pelos itens: <strong>${esc(sug)}</strong>.` : ''}</p>
+          <div class="grade">${campo({ rotulo: 'ND de destino do detalhamento', bind: 'fonte.nd_destino', opcoes: cand.map((c) => ({ v: c.nd, t: `${c.nd} — ${c.nome}` })), largo: true, ajuda: 'A NC de detalhamento será emitida no SIAFI pelo setor financeiro após o despacho da requisição.' })}</div></div>`;
+      }
+    }
+    if (!up) {
+      h += `<details class="envio-nc" style="margin-top:12px"${envioNcAberto ? ' open' : ''}><summary>Enviar o PDF de uma NC que ainda não está no repositório</summary>
+        <p class="ajuda" style="margin:8px 0">O PDF é conferido e guardado na pasta de NC do repositório.</p>
+        <div class="linha-botoes"><input type="file" id="up-nc" accept="application/pdf" aria-label="PDF da Nota de Crédito"><button type="button" class="btn-primario" id="btn-up-nc">Enviar NC</button></div></details>`;
+    }
+
+    h += `</div>`;
+    el.innerHTML = h;
+    sincronizarCampos(el);
+
+    $('#btn-usar-nc-ne', el)?.addEventListener('click', () => {
+      st.fonte.nc = ncNe;
+      const inp = $('[data-bind="fonte.nc"]', el);
+      if (inp) inp.value = ncNe;
+      tocados.add('fonte.nc');
+      salvarRascunho();
+      renderFonte();
+      agendar(true);
+    });
+
+    const inpRef = $('#busca-nc-desc-reforco');
+    const resRef = $('#res-nc-desc-reforco');
+    if (inpRef && resRef) {
+      let tRef;
+      const buscarRef = async () => {
+        try {
+          const q = inpRef.value.trim();
+          const lista = await api(`/api/ncs?q=${encodeURIComponent(q)}&limite=60`);
+          if (!lista.length) {
+            resRef.innerHTML = '<div class="vazio">Nenhuma Nota de Crédito encontrada.</div>';
+            resRef.hidden = false;
+            return;
+          }
+          resRef.innerHTML = `<div class="res-cabecalho">${lista.length >= 60 ? '60+' : lista.length} Nota(s) de Crédito encontrada(s)</div>
+            <ul>${lista.map((n) => {
+              const saldoTxt = n.saldo_disponivel > 0.005 ? `<span style="color:var(--ok);font-weight:700">Saldo: ${brlNum(n.saldo_disponivel)}</span>` : `<span style="color:var(--muted)">Saldo: R$ 0,00</span>`;
+              const pdfTag = n.tem_pdf ? `<span class="badge-ug badge-ug-ogu" style="font-size:0.7rem">PDF no Repositório</span>` : `<span class="badge-ug" style="font-size:0.7rem">Extrato SIAFI</span>`;
+              const desc = n.descricao || n.descricao_siafi || '(Sem descrição)';
+              return `<li><button type="button" data-nc-chave="${esc(n.chave)}" data-nc-emit="${esc(n.emitente)}">
+                <div class="item-busca-ne">
+                  <div class="linha-ne-empresa" style="justify-content:space-between;display:flex;gap:8px;flex-wrap:wrap">
+                    <span><strong>${esc(n.chave)}</strong> · UG Emit. ${esc(n.emitente)} (${esc(n.sigla_emitente || n.nome_emitente || '')})</span>
+                    <span>${pdfTag} · ${saldoTxt}</span>
+                  </div>
+                  <div class="linha-ne-sub" style="margin-top:2px;color:var(--text)"><small>${esc(desc.slice(0, 180))}</small></div>
+                </div>
+              </button></li>`;
+            }).join('')}</ul>`;
+          resRef.hidden = false;
+        } catch (e) { toast(e.message); }
+      };
+      inpRef.addEventListener('input', () => { clearTimeout(tRef); tRef = setTimeout(buscarRef, 220); });
+      inpRef.addEventListener('focus', buscarRef);
+      resRef.addEventListener('click', (ev) => {
+        const b = ev.target.closest('[data-nc-chave]');
+        if (!b) return;
+        resRef.hidden = true;
+        inpRef.value = '';
+        st.fonte = { ...st.fonte, nc: b.dataset.ncChave, emitente: b.dataset.ncEmit || '', ug: '', celula: '', nd_destino: '', nc_detalhamento: '' };
+        const campoNc = $('[data-bind="fonte.nc"]', el);
+        if (campoNc) campoNc.value = b.dataset.ncChave;
+        tocados.add('fonte.nc');
+        salvarRascunho();
+        renderFonte();
+        agendar(true);
+        toast(`Nota de Crédito ${b.dataset.ncChave} selecionada para o reforço!`);
+      });
+    }
+
+    const btnUp = $('#btn-up-nc', el);
+    if (btnUp) {
+      btnUp.onclick = async () => {
+        const f = $('#up-nc')?.files[0];
+        const ncAtual = st.fonte?.nc;
+        if (!ncAtual) { toast('Digite antes o nº da NC no campo acima.'); return; }
+        if (!f) { toast('Escolha o PDF da NC.'); return; }
+        const fd = new FormData();
+        fd.append('arquivo', f);
+        fd.append('numero', ncAtual);
+        fd.append('emitente', st.fonte?.emitente || '');
+        btnUp.disabled = true;
+        try {
+          await api('/api/nc/upload', { method: 'POST', body: fd });
+          toast('NC enviada e conferida.');
+          await validar(true);
+        } catch (e) { toast(e.message); }
+        btnUp.disabled = false;
+      };
+    }
+    return;
   }
-  el.innerHTML = h;
-  sincronizarCampos(el);
-  $('.envio-nc', el)?.addEventListener('toggle', (ev) => { envioNcAberto = ev.target.open; });
-  const btn = $('#btn-up-nc');
-  if (btn) btn.onclick = async () => {
-    const f = $('#up-nc').files[0];
-    if (!st.fonte.nc) { toast('Digite antes o nº da NC no campo acima.'); return; }
-    if (!f) { toast('Escolha o PDF da NC.'); return; }
-    const fd = new FormData(); fd.append('arquivo', f); fd.append('numero', st.fonte.nc); fd.append('emitente', st.fonte.emitente || '');
-    btn.disabled = true;
-    try { await api('/api/nc/upload', { method: 'POST', body: fd }); toast('NC enviada e conferida.'); await validar(true); } catch (e) { toast(e.message); }
-    btn.disabled = false;
-  };
 }
 
 // ---------------------------------------------------------------- WIZARD EM 5 ETAPAS ISOLADAS (REQUISIÇÃO BCMS)
@@ -553,31 +812,21 @@ function validarEtapa(numeroEtapa) {
   }
 
   if (numeroEtapa === 2) {
-    const fte = st.fonte || {};
-    if (!fte.nc || !fte.nc.trim()) {
-      const el = $('[data-bind="fonte.nc"]');
-      if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
-      toast('Informe ou pesquise o número da Nota de Crédito (NC).');
-      return false;
+    const fontes = (st.fontes && st.fontes.length) ? st.fontes : [st.fonte || {}];
+    for (let i = 0; i < fontes.length; i++) {
+      const fte = fontes[i];
+      if (!fte.nc || !fte.nc.trim()) {
+        const el = $(`[data-bind="fontes[${i}].nc"]`) || $('[data-bind="fonte.nc"]');
+        if (el) { el.focus(); el.closest('.campo')?.classList.add('invalido'); }
+        toast(`Informe ou pesquise o número da Nota de Crédito (NC #${i + 1}).`);
+        return false;
+      }
     }
     const v = ultimo.requisicao;
-    const r = v?.resumo?.fonte;
-    const achadosFonte = (v?.achados || []).filter((a) => a.campo.startsWith('fonte') && a.nivel === 'ERRO');
+    const achadosFonte = (v?.achados || []).filter((a) => (a.campo.startsWith('fonte') || a.campo.startsWith('fontes')) && a.nivel === 'ERRO');
     const erroUpload = achadosFonte.find((a) => a.acao === 'upload_nc');
     if (erroUpload) {
       toast('A Nota de Crédito precisa estar no repositório. Selecione uma NC válida ou envie o PDF.');
-      return false;
-    }
-    if (r?.candidatas && !fte.emitente) {
-      toast('Selecione a UG emitente da Nota de Crédito.');
-      return false;
-    }
-    if (r?.escolher_celula && (fte.celula === '' || fte.celula == null)) {
-      toast('Selecione a célula de destino da NC antes de avançar.');
-      return false;
-    }
-    if (r?.indetalhada && !fte.nd_destino) {
-      toast('A NC possui crédito indetalhado. Selecione a ND de destino para o detalhamento.');
       return false;
     }
     return true;
@@ -838,10 +1087,10 @@ function atualizarStepperVisual() {
   const req = cab.requisitante || {};
   const p1Ok = Boolean(cab.diex && cab.nup && cab.data && req.posto && req.nome && req.funcao);
 
-  const fte = st.fonte || {};
+  const fontes = (st.fontes && st.fontes.length) ? st.fontes : [st.fonte || {}];
   const v = ultimo.requisicao;
-  const achadosFonte = (v?.achados || []).filter((a) => a.campo.startsWith('fonte') && a.nivel === 'ERRO');
-  const p2Ok = Boolean(fte.nc && achadosFonte.length === 0);
+  const achadosFonte = (v?.achados || []).filter((a) => (a.campo.startsWith('fonte') || a.campo.startsWith('fontes')) && a.nivel === 'ERRO');
+  const p2Ok = Boolean(fontes.every(f => f.nc) && achadosFonte.length === 0);
 
   const temPregao = st.modalidade === 'PREGAO'
     ? Boolean(st.licitacao.pregao_id || (st.licitacao.manual && st.licitacao.manual.numero))
@@ -956,8 +1205,8 @@ function atualizarPainelEtapa5() {
         </div>
         <div class="card-resumo-item">
           <span class="resumo-rotulo">Nota de Crédito (SIAFI)</span>
-          <strong class="resumo-val">${esc(st.fonte?.nc || 'Não informada')}</strong>
-          <small class="resumo-sub">${v?.resumo?.fonte?.nd ? `ND ${v.resumo.fonte.nd}` : 'Célula a vincular'}</small>
+          <strong class="resumo-val">${st.fontes && st.fontes.length > 1 ? `${st.fontes.length} NCs (${esc(st.fontes.map(f => f.nc).filter(Boolean).join(', ') || 'Não informadas')})` : esc(st.fonte?.nc || 'Não informada')}</strong>
+          <small class="resumo-sub">${v?.resumo?.fontes && v.resumo.fontes.length > 1 ? `${v.resumo.fontes.length} fontes vinculadas` : (v?.resumo?.fonte?.nd ? `ND ${v.resumo.fonte.nd}` : 'Célula a vincular')}</small>
         </div>
         <div class="card-resumo-item">
           <span class="resumo-rotulo">Itens Solicitados</span>
@@ -1080,12 +1329,60 @@ function renderCondicoes() {
     if (st.pca.consta === false || st.pca.consta === 'false') {
       bp.innerHTML = `<div class="grade">${campo({ rotulo: 'Justificativa (15 a 200 caracteres)', bind: 'pca.justificativa', largo: true })}</div><p class="dica alerta" style="margin-top:8px">Contratação fora do PCA exige ciência registrada (Lei 14.133/2021, arts. 12, VII, e 18).</p>`;
     } else {
-      bp.innerHTML = `<div class="grade">${campo({ rotulo: 'Classe/Grupo do PCA', bind: 'pca.classe', placeholder: '7510 - ARTIGOS PARA ESCRITÓRIO' })}${campo({ rotulo: 'Nº da contratação no PCA', bind: 'pca.contratacao', mascara: 'pca', placeholder: '160329-7/2026' })}</div>
-        <div id="pca-sugestoes" class="pca-sugestoes" aria-live="polite"></div>
-        <div class="campo pca-busca"><label for="pca-busca">Pesquisar no PCA do BCMS</label><input id="pca-busca" type="search" placeholder="objeto, seção, classe ou item (ex.: pneu, escritório, 2540)" aria-describedby="pca-busca-ajuda"><span class="ajuda" id="pca-busca-ajuda">Lista as contratações do PCA publicado do BCMS. O botão preenche o nº da contratação e a classe.</span></div>
-        <div id="pca-resultados" class="pca-resultados" aria-live="polite"></div>`;
+      const nrSel = st.pca.contratacao || '';
+      const clSel = st.pca.classe || '';
+      const cardSel = nrSel
+        ? `<div class="card-pca-selecionado">
+             <div class="pca-sel-info">
+               <span class="badge-pca-ok">✅ Contratação Vinculada no PNCP / PCA:</span>
+               <strong>${esc(nrSel)}</strong>${clSel ? ` · <span class="badge-classe-sel">${esc(clSel)}</span>` : ''}
+             </div>
+             <button type="button" class="btn-leve btn-perigo" id="btn-limpar-pca" title="Remover seleção e escolher outra contratação">Limpar / Trocar</button>
+           </div>`
+        : '';
+
+      bp.innerHTML = `
+        <!-- 1. MÓDULO DE PESQUISA NO PNCP / PCA (PRIMEIRO) -->
+        <div class="modulo-pncp-busca">
+          <div class="campo pca-busca">
+            <label for="pca-busca" class="label-com-tag">
+              <span><strong>🔍 Pesquisa no PNCP / PCA</strong> <small class="text-muted">(Portal Nacional de Contratações Públicas)</small></span>
+              <span class="tag-status-pncp">Lei 14.133/2021</span>
+            </label>
+            <div class="busca">
+              <input id="pca-busca" type="search" placeholder="Buscar por objeto, item, classe ou nº da contratação (ex.: viatura, ferramentas, informática, ar condicionado, adesivo, 3...)" aria-describedby="pca-busca-ajuda" autocomplete="off">
+              <div id="pca-resultados" class="pca-resultados" aria-live="polite" hidden></div>
+            </div>
+            <span class="ajuda" id="pca-busca-ajuda">Consulte as contratações e itens publicados no PNCP / PCA. Clique no resultado para preencher automaticamente.</span>
+          </div>
+          <div id="pca-sugestoes" class="pca-sugestoes" aria-live="polite"></div>
+        </div>
+
+        <!-- 2. STATUS DA SELEÇÃO (SE HOUVER) -->
+        <div id="pca-status-sel">${cardSel}</div>
+
+        <!-- 3. INSERÇÃO MANUAL / CONFERÊNCIA DOS DADOS (VEM DEPOIS) -->
+        <div class="secao-pca-manual">
+          <div class="pca-manual-header">
+            <span>📝 Conferência / Inserção Manual dos Dados da Contratação:</span>
+            <small class="text-muted">Preenchido automaticamente ao selecionar acima ou digitado manualmente</small>
+          </div>
+          <div class="grade">
+            ${campo({ rotulo: 'Nº da contratação no PNCP / PCA', bind: 'pca.contratacao', mascara: 'pca', placeholder: '160329-3/2026' })}
+            ${campo({ rotulo: 'Classe/Grupo do PCA', bind: 'pca.classe', placeholder: '2590 - COMPONENTES DIVERSOS PARA VEÍCULOS' })}
+          </div>
+        </div>`;
       _hashPca = '';
       ligarBuscaPca(); renderPcaSugestoes();
+      $('#btn-limpar-pca')?.addEventListener('click', () => {
+        st.pca.contratacao = '';
+        st.pca.classe = '';
+        tocados.add('pca.contratacao');
+        tocados.add('pca.classe');
+        renderCondicoes();
+        salvarRascunho();
+        agendar(true);
+      });
     }
   }
   [bc, bp].forEach((x) => x && sincronizarCampos(x));
@@ -1101,8 +1398,34 @@ function usarPca(nr, classe) {
   const st = estados.requisicao;
   if (nr) { st.pca.contratacao = nr; tocados.add('pca.contratacao'); }
   if (classe) { st.pca.classe = classe; tocados.add('pca.classe'); }
-  const bp = $('#box-pca'); if (bp) { $$('[data-bind^="pca."]', bp).forEach((el) => { el.value = get(st, el.dataset.bind) ?? ''; }); }
-  _hashPca = ''; salvarRascunho(); agendar(true);
+  const bp = $('#box-pca');
+  if (bp) {
+    $$('[data-bind^="pca."]', bp).forEach((el) => {
+      el.value = get(st, el.dataset.bind) ?? '';
+    });
+    const stat = $('#pca-status-sel', bp);
+    if (stat) {
+      stat.innerHTML = nr ? `<div class="card-pca-selecionado">
+        <div class="pca-sel-info">
+          <span class="badge-pca-ok">✅ Contratação Vinculada no PNCP / PCA:</span>
+          <strong>${esc(nr)}</strong>${classe ? ` · <span class="badge-classe-sel">${esc(classe)}</span>` : ''}
+        </div>
+        <button type="button" class="btn-leve btn-perigo" id="btn-limpar-pca" title="Remover seleção">Limpar / Trocar</button>
+      </div>` : '';
+      $('#btn-limpar-pca', stat)?.addEventListener('click', () => {
+        st.pca.contratacao = '';
+        st.pca.classe = '';
+        tocados.add('pca.contratacao');
+        tocados.add('pca.classe');
+        renderCondicoes();
+        salvarRascunho();
+        agendar(true);
+      });
+    }
+  }
+  _hashPca = '';
+  salvarRascunho();
+  agendar(true);
 }
 function rotuloClasse(k) { return k.nome ? `${k.codigo} - ${k.nome}` : k.codigo; }
 function renderPcaSugestoes() {
@@ -1117,26 +1440,22 @@ function renderPcaSugestoes() {
   let html = '';
   if (r.aviso) html += `<p class="dica alerta">${esc(r.aviso)} Confira o nº no plano vigente da OM.</p>`;
   if (r.classes?.length) {
-    html += `<p class="ajuda">Classe dos itens (catálogo CATMAT/CATSER):</p><div class="sugestoes">${r.classes.map((c) => {
+    html += `<p class="ajuda" style="margin:8px 0 4px">💡 Sugestão automática de classes dos itens (catálogo CATMAT/CATSER):</p><div class="sugestoes">${r.classes.map((c) => {
       const usada = String(st.pca.classe || '').startsWith(c.codigo);
       return `<button type="button" data-pca-cl="${esc(c.rotulo)}" aria-pressed="${usada}">${esc(c.rotulo)}${c.n_itens > 1 ? ` · ${c.n_itens} itens` : ''}</button>`;
     }).join('')}</div>`;
-  } else {
-    html += `<p class="ajuda">Informe o CATMAT/CATSER dos itens (itens de ata já trazem) para sugerir a classe do PCA.</p>`;
   }
   if (r.sugestoes?.length) {
-    html += `<p class="ajuda" style="margin-top:10px">Contratações do PCA ${esc(r.ano_usado)} que combinam com os itens${r.posicao ? ` (posição ${fmtData(String(r.posicao).slice(0, 10))})` : ''}:</p><ul class="pca-lista">${r.sugestoes.map((s) => {
+    html += `<p class="ajuda" style="margin-top:10px">💡 Contratações sugeridas para os itens da requisição:</p><ul class="pca-lista">${r.sugestoes.map((s) => {
       const k = (s.classes || []).find((c) => codigosItens.has(c.codigo)) || (s.classes || [])[0];
       const usada = st.pca.contratacao === s.codigo;
-      return `<li><button type="button" data-pca-nr="${esc(s.codigo)}" ${k ? `data-pca-cl="${esc(rotuloClasse(k))}"` : ''} aria-pressed="${usada}">Usar ${esc(s.codigo)}</button>
-        <span><strong>${esc((s.objetos || [])[0] || '—')}</strong><small>${esc((s.projetos || [])[0] || '')}${k ? ` · classe ${esc(rotuloClasse(k))}` : ''} · ${esc((s.motivos || []).join('; '))}</small></span></li>`;
+      const codS = esc(s.codigo);
+      return `<li><button type="button" data-pca-nr="${codS}" ${k ? `data-pca-cl="${esc(rotuloClasse(k))}"` : ''} aria-pressed="${usada}">Usar ${codS}</button>
+        <span><strong>${esc(s.objeto_principal || (s.objetos || [])[0] || '—')}</strong><small>${esc((s.projetos || [])[0] || '')}${k ? ` · classe ${esc(rotuloClasse(k))}` : ''} · ${esc((s.motivos || []).join('; '))}</small></span></li>`;
     }).join('')}</ul>`;
-  } else {
-    const cls = (r.classes || []).map((c) => c.codigo).join(', ');
-    html += `<p class="ajuda" style="margin-top:10px">Nenhuma contratação do PCA ${esc(r.ano_usado)} combina com os itens${cls ? ` (classe ${esc(cls)})` : ''}. Use a pesquisa abaixo; se o objeto não estiver previsto no plano, responda "Não" em "A contratação consta no PCA?" e justifique.</p>`;
   }
   if (r.contratacao) {
-    html += `<p class="dica ok" style="margin-top:8px">Conferido no PCA: <strong>${esc(r.contratacao.codigo)}</strong> — ${esc((r.contratacao.objetos || [])[0] || '')}.</p>`;
+    html += `<p class="dica ok" style="margin-top:8px">Conferido no PCA: <strong>${esc(r.contratacao.codigo)}</strong> — ${esc(r.contratacao.objeto_principal || (r.contratacao.objetos || [])[0] || '')}.</p>`;
   }
   alvo.innerHTML = html;
 }
@@ -1145,21 +1464,177 @@ function ligarBuscaPca() {
   let t = null; let seq = 0;
   const buscar = async () => {
     const q = inp.value.trim(); const meu = ++seq;
-    if (q.length < 2) { res.innerHTML = ''; return; }
+    if (q.length < 1) { res.innerHTML = ''; res.hidden = true; return; }
+    res.innerHTML = '<div style="padding:12px;text-align:center;color:var(--muted)"><span class="spin"></span> Consultando contratações e itens no PNCP / PCA…</div>';
+    res.hidden = false;
     try {
       const r = await api(`/api/pca?ano=${encodeURIComponent(anoDoDocumento())}&q=${encodeURIComponent(q)}`);
       if (meu !== seq) return;
-      if (!r.ano_usado) { res.innerHTML = '<p class="dica">PCA do BCMS ainda não importado (use "Atualizar dados").</p>'; return; }
-      res.innerHTML = `${r.aviso ? `<p class="dica alerta">${esc(r.aviso)}</p>` : ''}${r.contratacoes.length ? `<ul class="pca-lista">${r.contratacoes.map((c) => `<li>
-        <span class="nowrap"><strong>${esc(c.codigo)}</strong></span>
-        <span><strong>${esc((c.objetos || [])[0] || '—')}</strong><small>${esc((c.projetos || [])[0] || '')} · ${esc(c.n_itens)} item(ns) · ${brlNum(c.valor_total)}</small>
-        <span class="sugestoes">${(c.classes || []).slice(0, 4).map((k) => `<button type="button" data-pca-nr="${esc(c.codigo)}" data-pca-cl="${esc(rotuloClasse(k))}">Usar nº + ${esc(rotuloClasse(k))}</button>`).join('') || `<button type="button" data-pca-nr="${esc(c.codigo)}">Usar nº ${esc(c.codigo)}</button>`}</span></span></li>`).join('')}</ul>` : `<p class="dica">Nada encontrado no PCA ${esc(r.ano_usado)}.</p>`}`;
-    } catch (e) { res.innerHTML = `<p class="dica erro">${esc(e.message)}</p>`; }
+      if (!r.total && !r.contratacoes?.length) {
+        res.innerHTML = `<div class="dica alerta" style="margin:4px 0">Nada encontrado no PNCP / PCA para “${esc(q)}”. Você pode digitar o número manualmente nos campos abaixo.</div>`;
+        return;
+      }
+      res.innerHTML = `
+        <div class="pca-cabecalho-resultados">
+          <span>Encontrada(s) <strong>${r.contratacoes.length}</strong> contratação(ões) no PNCP:</span>
+          ${r.aviso ? `<small class="text-muted" style="margin-left:6px">${esc(r.aviso)}</small>` : ''}
+        </div>
+        <ul class="pca-lista-cards">
+          ${r.contratacoes.map((c) => {
+            const classes = c.classes || [];
+            const objs = c.objetos || [c.objeto_principal || '—'];
+            const itensMatch = c.itens_match || [];
+            const totalItens = c.n_itens || (c.itens ? c.itens.length : 0);
+            const valTotal = c.valor_total ? brlNum(c.valor_total) : '—';
+            const idCod = esc(c.codigo);
+            return `
+              <li class="card-resultado-pca" data-codigo="${idCod}">
+                <div class="card-pca-top">
+                  <div class="card-pca-ident">
+                    <strong class="codigo-contratacao-pca">${idCod}</strong>
+                    <span class="badge-ano-pca">${esc(c.ano)}</span>
+                    ${c.id_pncp ? `<span class="badge-id-pncp" title="Identificador Oficial no PNCP">PNCP: ${esc(c.id_pncp)}</span>` : ''}
+                  </div>
+                  <div class="card-pca-metas">
+                    <span class="badge-itens-count">📦 ${totalItens} item(ns)</span>
+                    <span class="badge-valor-total">${valTotal}</span>
+                  </div>
+                </div>
+
+                <div class="card-pca-objeto">
+                  <strong>Objeto:</strong> ${esc(c.objeto_principal || objs[0] || '—')}
+                  ${objs.length > 1 ? `<div class="outros-objetos-pca" style="margin-top:4px; font-size:0.85em; color:var(--muted)"><strong>Demais demandas:</strong> ${objs.slice(1, 4).map(esc).join('; ')}${objs.length > 4 ? ` (+${objs.length - 4} outros)` : ''}</div>` : ''}
+                </div>
+
+                ${itensMatch.length ? `
+                  <div class="pca-itens-match">
+                    <div class="match-titulo">🎯 Itens correspondentes ao termo “${esc(q)}”:</div>
+                    <ul class="lista-itens-match">
+                      ${itensMatch.map((im) => `
+                        <li>
+                          <strong>Item ${esc(im.numero)}:</strong> ${esc(im.descricao)}
+                          ${im.valor_total ? `<span class="match-valor">(R$ ${brlNum(im.valor_total)})</span>` : ''}
+                          ${im.classe ? `<small class="match-classe">[${esc(im.classe)}]</small>` : ''}
+                        </li>
+                      `).join('')}
+                    </ul>
+                  </div>
+                ` : ''}
+
+                <div class="card-pca-acoes">
+                  <div class="sugestoes-classes-pca">
+                    <span class="ajuda-classe">Classes vinculadas:</span>
+                    ${classes.slice(0, 4).map((k) => `
+                      <button type="button" class="btn-pca-classe" data-pca-nr="${idCod}" data-pca-cl="${esc(rotuloClasse(k))}">
+                        Usar nº + ${esc(rotuloClasse(k))}
+                      </button>
+                    `).join('') || `
+                      <button type="button" class="btn-pca-classe" data-pca-nr="${idCod}">
+                        Usar nº ${idCod}
+                      </button>
+                    `}
+                  </div>
+                  <div class="card-pca-botoes-rodape">
+                    <button type="button" class="btn-selecionar-pca" data-pca-nr="${idCod}" data-pca-cl="${esc(rotuloClasse(classes[0] || {}))}">
+                      ✅ Selecionar Contratação
+                    </button>
+                    ${totalItens > 0 ? `
+                      <button type="button" class="btn-ver-itens-pca" data-toggle-pca-itens="${idCod}">
+                        📋 Ver itens previstos (${totalItens})
+                      </button>
+                    ` : ''}
+                  </div>
+                </div>
+
+                ${c.itens && c.itens.length ? `
+                  <div class="gaveta-itens-pca" id="gaveta-itens-${idCod.replace(/[^\w]/g, '_')}" hidden>
+                    <table class="tabela-itens-pca">
+                      <thead>
+                        <tr>
+                          <th>Item</th>
+                          <th>Descrição</th>
+                          <th>Classe</th>
+                          <th style="text-align:right">Qtd</th>
+                          <th style="text-align:right">Valor Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${c.itens.slice(0, 50).map((it) => `
+                          <tr>
+                            <td><strong>${esc(it.numero)}</strong></td>
+                            <td>${esc(it.descricao)}</td>
+                            <td><small>${esc(it.classe_nome || it.classe_codigo || '—')}</small></td>
+                            <td style="text-align:right">${esc(it.qtd || 1)}</td>
+                            <td style="text-align:right">${it.valor_total ? brlNum(it.valor_total) : '—'}</td>
+                          </tr>
+                        `).join('')}
+                      </tbody>
+                    </table>
+                    ${c.itens.length > 50 ? `<p class="ajuda" style="margin:4px 0">Mostrando os primeiros 50 itens de ${c.itens.length}.</p>` : ''}
+                  </div>
+                ` : ''}
+              </li>
+            `;
+          }).join('')}
+        </ul>
+      `;
+    } catch (e) {
+      res.innerHTML = `<div class="dica erro">${esc(e.message)}</div>`;
+    }
   };
-  inp.addEventListener('input', () => { clearTimeout(t); t = setTimeout(buscar, 300); });
+
+  inp.addEventListener('input', () => { clearTimeout(t); t = setTimeout(buscar, 250); });
+  inp.addEventListener('focus', () => { if (inp.value.trim().length >= 1) buscar(); });
+  
+  res.addEventListener('click', (ev) => {
+    const bSel = ev.target.closest('[data-pca-nr]');
+    if (bSel) {
+      usarPca(bSel.dataset.pcaNr || '', bSel.dataset.pcaCl || '');
+      toast(`Contratação ${bSel.dataset.pcaNr} selecionada no PNCP!`);
+      res.hidden = true;
+      return;
+    }
+    const bToggle = ev.target.closest('[data-toggle-pca-itens]');
+    if (bToggle) {
+      const cod = bToggle.dataset.togglePcaItens;
+      const gaveta = $(`#gaveta-itens-${cod.replace(/[^\w]/g, '_')}`, res);
+      if (gaveta) {
+        gaveta.hidden = !gaveta.hidden;
+        bToggle.textContent = gaveta.hidden ? `📋 Ver itens previstos` : `🔼 Ocultar itens`;
+      }
+    }
+  });
 }
 
 // ---- licitação
+function chipSituacaoNe(n) {
+  if (!n) return '';
+  const sit = n.situacao || (parseDec(n.valor_atual) <= 0 ? 'TOTALMENTE_ANULADO' : 'NORMAL');
+  if (sit === 'TOTALMENTE_ANULADO') {
+    return `<span class="chip-situacao-ne situacao-anulada" title="Empenho com saldo R$ 0,00 no SIAFI (anulado totalmente)">🔴 Anulada Totalmente</span>`;
+  }
+  if (sit === 'REFORCADO') {
+    const vRef = parseDec(n.valor_reforcado);
+    return `<span class="chip-situacao-ne situacao-reforcada" title="Empenho reforçado no SIAFI">🟢 Reforçada${vRef > 0 ? ` (+${brlNum(vRef)})` : ''}</span>`;
+  }
+  if (sit === 'PARCIALMENTE_ANULADO') {
+    const vAnu = parseDec(n.valor_anulado);
+    return `<span class="chip-situacao-ne situacao-parcial" title="Empenho com anulação parcial no SIAFI">🟠 Anulação Parcial${vAnu > 0 ? ` (-${brlNum(vAnu)})` : ''}</span>`;
+  }
+  if (sit === 'MISTO') {
+    return `<span class="chip-situacao-ne situacao-mista" title="Empenho que sofreu reforço e anulação no SIAFI">🟡 Reforço e Anulação</span>`;
+  }
+  return `<span class="chip-situacao-ne situacao-normal" title="Empenho inicial sem reforço ou anulação">🔵 Empenho Inicial</span>`;
+}
+
+function chipPdfNe(n) {
+  if (n && n.tem_pdf === false) {
+    return `<span class="chip-situacao-ne situacao-sem-pdf" title="NE constante no Tesouro Gerencial, mas PDF não encontrado no repositório">⚠️ Sem PDF</span>`;
+  }
+  return '';
+}
+
+
 function chipPapel(t) {
   const cls = { GERENCIADORA: 'ger', PARTICIPANTE: 'par', NAO_PARTICIPANTE: 'nao' }[t] || '';
   const rot = CFG.catalogos.tipos_unidade.find((x) => x.id === t)?.rotulo || t;
@@ -1287,7 +1762,7 @@ function ligarBuscaPregao() {
   const buscar = async () => {
     try {
       const lista = await api(`/api/pregoes?q=${encodeURIComponent(inp.value)}`);
-      res.innerHTML = lista.length ? `<ul>${lista.map((p) => `<li><button type="button" data-pid="${esc(p.id)}"><div class="item-busca-pregao"><span class="pregao-titulo"><strong>Pregão ${esc(p.numero)}</strong> · UASG ${esc(p.ugg)} — ${esc(p.nome_ugg || p.sigla_ugg || '')}</span>${p.objeto ? `<span class="badge-objeto"><span aria-hidden="true">📦</span> ${esc(p.objeto)}</span>` : ''}<small class="pregao-sub">${chipPapel(p.tipo_unidade)} · ${p.n_itens} item(ns) · ${esc((p.fornecedores || []).join('; ').slice(0, 75))}</small></div></button></li>`).join('')}</ul>` : '<div class="vazio">Nada encontrado. Use "cadastrar novo pregão e UASG".</div>';
+      res.innerHTML = lista.length ? `<ul>${lista.map((p) => `<li><button type="button" data-pid="${esc(p.id)}"><div class="item-busca-pregao"><span class="pregao-titulo"><strong>Pregão ${esc(p.numero)}</strong> · UASG ${esc(p.ugg)} — ${esc(p.nome_ugg || p.sigla_ugg || '')}</span>${p.objeto ? `<span class="badge-objeto"><span aria-hidden="true">📦</span> ${esc(p.objeto)}</span>` : ''}<small class="pregao-sub">${chipPapel(p.tipo_unidade)} · ${p.n_itens} item(ns) · ${esc((p.fornecedores || []).join('; ').slice(0, 75))}</small>${p.itens_match && p.itens_match.length ? `<div class="pregao-itens-match" style="margin-top:6px; padding:4px 8px; background:rgba(0,102,204,0.08); border:1px solid rgba(0,102,204,0.18); border-radius:4px; font-size:0.85em; text-align:left; color:var(--text, #333);">${p.itens_match.map((im) => `<div>🔍 <strong>Item ${im.item}:</strong> ${esc(im.descricao.slice(0, 80))}${im.descricao.length > 80 ? '…' : ''}${im.fornecedor ? ` <small class="text-muted">(${esc(im.fornecedor)})</small>` : ''}</div>`).join('')}${p.total_itens_match > p.itens_match.length ? `<div style="font-size:0.8em; color:var(--cor-primaria,#0056b3); font-weight:600; margin-top:2px">+${p.total_itens_match - p.itens_match.length} outro(s) item(ns) correspondente(s)</div>` : ''}</div>` : ''}</div></button></li>`).join('')}</ul>` : '<div class="vazio">Nada encontrado. Use "cadastrar novo pregão e UASG".</div>';
       res.hidden = false;
     } catch (e) { toast(e.message); }
   };
@@ -1306,6 +1781,7 @@ function ligarBuscaPregao() {
   res.addEventListener('click', (ev) => {
     const b = ev.target.closest('[data-pid]'); if (!b) return;
     const st = estados.requisicao; st.licitacao.pregao_id = b.dataset.pid; st.licitacao.manual = null;
+    termoBuscaPregaoSalvo = inp.value.trim();
     res.hidden = true; inp.value = '';
     botoesFiltro.forEach((x) => x.classList.remove('ativo'));
     $('.btn-filtro-obj[data-filtro=""]')?.classList.add('ativo');
@@ -1461,17 +1937,23 @@ function abrirModalNEsContrato(c, acao, lista) {
         return `
           <div class="item-ne-modal">
             <div class="info-ne-modal">
-              <div class="linha-ne-m-tit">
-                <span class="badge-ug ${clsUg}">${tagUg}</span>
-                <strong style="font-size:0.95rem">NE ${esc(n.chave)}</strong>
-                <span style="font-weight:700;color:var(--text)">${brlNum(n.valor_atual)}</span>
+              <div class="linha-ne-m-tit" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                <div>
+                  <span class="badge-ug ${clsUg}">${tagUg}</span>
+                  <strong style="font-size:0.95rem">NE ${esc(n.chave)}</strong>
+                  ${n.versao ? `<span class="badge-versao">v${esc(n.versao)}</span>` : ''}
+                </div>
+                <div>
+                  ${chipSituacaoNe(n)} ${chipPdfNe(n)}
+                  <span style="font-weight:700;color:var(--text);margin-left:6px;${n.situacao === 'TOTALMENTE_ANULADO' ? 'text-decoration:line-through;color:var(--cor-erro,#dc3545);' : ''}">${brlNum(n.valor_atual)}</span>
+                </div>
               </div>
               <div class="linha-ne-m-sub">
-                ND ${esc(n.nd || '-')} · PI ${esc(n.pi || '-')} · ${esc(n.tipo_empenho || '')}${n.pregao ? ` · Pregão ${esc(n.pregao)}` : ''}
+                ND ${esc(n.nd || '-')} · PI ${esc(n.pi || '-')} · ${esc(n.tipo_empenho || '')}${n.pregao ? ` · Pregão ${esc(n.pregao)}` : ''}${n.valor_incluido && n.valor_incluido !== n.valor_atual ? ` · Inicial: ${brlNum(n.valor_incluido)}` : ''}
               </div>
             </div>
             <button type="button" class="btn btn-primario btn-escolher-ne-modal" data-ne="${esc(n.chave)}" data-ug="${esc(n.ug)}">
-              ${acao === 'reforco' ? '➕ Reforçar' : '✂️ Anular'}
+              ${parseDec(n.valor_atual) <= 0 ? 'Selecionar (Anulada)' : 'Selecionar NE'}
             </button>
           </div>
         `;
@@ -1563,9 +2045,26 @@ function renderContratosSugeridos(el) {
 
 // ---- fornecedores e itens (requisição)
 function ndEfetiva() {
-  const r = ultimo.requisicao?.resumo?.fonte; if (!r || r.candidatas) return null;
-  if (r.indetalhada) return r.detalhamento?.nd_destino || null;
-  return r.nd;
+  const v = ultimo.requisicao;
+  const resFontes = (v?.resumo?.fontes && v.resumo.fontes.length) ? v.resumo.fontes : (v?.resumo?.fonte ? [v.resumo.fonte] : []);
+  for (const r of resFontes) {
+    if (!r || r.candidatas) continue;
+    if (r.indetalhada && r.detalhamento?.nd_destino) return r.detalhamento.nd_destino;
+    if (r.nd) return r.nd;
+  }
+  return null;
+}
+
+function todasNDsEfetivas() {
+  const v = ultimo.requisicao;
+  const resFontes = (v?.resumo?.fontes && v.resumo.fontes.length) ? v.resumo.fontes : (v?.resumo?.fonte ? [v.resumo.fonte] : []);
+  const nds = [];
+  resFontes.forEach((r) => {
+    if (!r || r.candidatas) return;
+    const nd = r.indetalhada ? r.detalhamento?.nd_destino : r.nd;
+    if (nd && !nds.includes(nd)) nds.push(nd);
+  });
+  return nds;
 }
 function renderFornecedores() {
   const el = $('#itens-dinamico'); if (!el) return;
@@ -1626,21 +2125,41 @@ function renderFornecedores() {
   carregarSugestoes();
 }
 async function carregarSugestoes() {
-  const st = estados.requisicao; const nd = ndEfetiva();
+  const st = estados.requisicao;
+  const nds = todasNDsEfetivas();
+  const nd = nds[0] || ndEfetiva();
   for (let fi = 0; fi < st.fornecedores.length; fi++) {
     for (let ii = 0; ii < st.fornecedores[fi].itens.length; ii++) {
       const it = st.fornecedores[fi].itens[ii];
       const alvo = $(`[data-sug="${fi}.${ii}"]`);
       if (!alvo || !it.descricao || it.descricao.length < 6) continue;
       if (!nd) { alvo.innerHTML = '<span class="ajuda">Informe a NC (e, se for ND 00, a ND de destino) para sugerir o subitem.</span>'; continue; }
-      const chave = `${nd}|${st.objeto}|${it.descricao}`;
-      let r = cacheSugestao.get(chave);
-      if (!r) {
-        try { r = await post('/api/classificar', { descricao: it.descricao, nd, objeto: st.objeto || null }); cacheSugestao.set(chave, r); } catch { continue; }
+      
+      let todasSugestoes = [];
+      const listaNDs = nds.length ? nds : [nd];
+      for (const ndAtual of listaNDs) {
+        const chave = `${ndAtual}|${st.objeto}|${it.descricao}`;
+        let r = cacheSugestao.get(chave);
+        if (!r) {
+          try {
+            r = await post('/api/classificar', { descricao: it.descricao, nd: ndAtual, objeto: st.objeto || null });
+            cacheSugestao.set(chave, r);
+          } catch { continue; }
+        }
+        if (r && r.disponivel && r.sugestoes) {
+          r.sugestoes.forEach((s) => {
+            if (!todasSugestoes.some((x) => x.subitem === s.subitem)) {
+              todasSugestoes.push({ ...s, ndOrigem: ndAtual });
+            }
+          });
+        }
       }
-      if (!r.disponivel) { alvo.innerHTML = ''; continue; }
-      if (!r.sugestoes.length) { alvo.innerHTML = `<span class="ajuda">Sem sugestão automática para a ND ${esc(nd)}.</span>`; continue; }
-      alvo.innerHTML = `<span class="ajuda">Subitem sugerido para a ND ${esc(nd)}:</span> ${r.sugestoes.slice(0, 3).map((s) => `<button type="button" data-aplicar-si="${fi}.${ii}.${esc(s.subitem)}" title="${esc((s.termos || []).join(', '))}">${esc(s.subitem)} — ${esc(s.nome.toLowerCase())} (${esc(s.confianca)})</button>`).join('')}`;
+      if (!todasSugestoes.length) {
+        alvo.innerHTML = `<span class="ajuda">Sem sugestão automática para a ND ${esc(listaNDs.join('/'))}.</span>`;
+        continue;
+      }
+      const rotuloNd = listaNDs.length > 1 ? ` (${listaNDs.join(', ')})` : ` ${esc(nd)}`;
+      alvo.innerHTML = `<span class="ajuda">Subitem sugerido para a ND${rotuloNd}:</span> ${todasSugestoes.slice(0, 3).map((s) => `<button type="button" data-aplicar-si="${fi}.${ii}.${esc(s.subitem)}" title="${esc((s.termos || []).join(', '))}">${esc(s.subitem)} — ${esc(s.nome.toLowerCase())} (${esc(s.confianca)}${listaNDs.length > 1 ? ` · ND ${s.ndOrigem}` : ''})</button>`).join('')}`;
     }
   }
 }
@@ -1832,47 +2351,56 @@ function ligarBuscaNE(destino, idxLinha = null, prefixo = '') {
              const tagUg = n.ug === '167329' ? 'FEx · 167329' : 'OGU · 160329';
              return `<li><button type="button" data-ne="${esc(n.chave)}" data-ug="${esc(n.ug)}">
                <div class="item-busca-ne">
-                 <div class="linha-ne-empresa">
-                   <span class="badge-ug ${clsUg}">${tagUg}</span>
-                   <strong class="nome-empresa">🏢 ${esc(n.favorecido_nome || 'Favorecido não informado')}</strong>
+                 <div class="linha-ne-empresa" style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap">
+                   <div>
+                     <span class="badge-ug ${clsUg}">${tagUg}</span>
+                     <strong class="nome-empresa">🏢 ${esc(n.favorecido_nome || 'Favorecido não informado')}</strong>
+                   </div>
+                   <div>${chipSituacaoNe(n)} ${chipPdfNe(n)}</div>
                  </div>
-                 <div class="linha-ne-dados">
+                 <div class="linha-ne-dados" style="margin-top:4px">
                    <span class="chave-ne"><strong>${esc(n.chave)}</strong></span>
                    ${n.favorecido_codigo ? ` · <span class="cnpj-empresa">${esc(n.favorecido_codigo)}</span>` : ''}
-                   · <span class="valor-ne">${brlNum(n.valor_atual)}</span>
+                   ${n.versao ? ` · <span class="badge-versao">v${esc(n.versao)}</span>` : ''}
+                   · <span class="valor-ne" style="${n.situacao === 'TOTALMENTE_ANULADO' ? 'text-decoration:line-through;color:var(--cor-erro,#dc3545);' : 'font-weight:700'}">${brlNum(n.valor_atual)}</span>
+                   ${n.valor_incluido && n.valor_incluido !== n.valor_atual ? ` <small class="text-muted" style="font-size:0.85em">(Inicial: ${brlNum(n.valor_incluido)})</small>` : ''}
                  </div>
-                 <div class="linha-ne-sub">
+                 <div class="linha-ne-sub" style="margin-top:2px">
                    <small>ND ${esc(n.nd || '')} · PI ${esc(n.pi || '')} · ${esc(n.tipo_empenho || '')}${n.pregao ? ' · pregão ' + esc(n.pregao) : ''}</small>
                  </div>
                </div>
-             </button></li>`;
-           }).join('')}</ul>`
-        : `<div class="vazio">Nenhuma NE encontrada (${rotuloUg}${rotuloEmp}). Digite o número da NE (ex.: 2026NE000165), nome da empresa ou envie o PDF abaixo.</div>`;
-      res.hidden = false;
-    } catch (e) { toast(e.message); }
-  };
-  inp.addEventListener('input', () => { clearTimeout(t); t = setTimeout(buscar, 250); });
-  inp.addEventListener('focus', buscar);
-  res.addEventListener('click', (ev) => {
-    const b = ev.target.closest('[data-ne]'); if (!b) return;
-    res.hidden = true; inp.value = '';
-    escolherNE(destino, idxLinha, b.dataset.ug, b.dataset.ne);
-  });
-  document.addEventListener('click', (ev) => {
-    if (!ev.target.closest('.busca') &&
-        !(containerFiltros && containerFiltros.contains(ev.target)) &&
-        !(selEmpresa && selEmpresa.contains(ev.target))) {
-      res.hidden = true;
-    }
-  });
-  inp.addEventListener('change', () => {
-    const v = MASCARAS.ne(inp.value);
-    if (/^\d{4}NE\d{1,6}$/.test(v)) escolherNE(destino, idxLinha, ugFiltro, v);
-  });
+              </button></li>`;
+            }).join('')}</ul>`
+         : `<div class="vazio">Nenhuma NE encontrada (${rotuloUg}${rotuloEmp}). Digite o número da NE (ex.: 2026NE000165), nome da empresa ou envie o PDF abaixo.</div>`;
+       res.hidden = false;
+     } catch (e) { toast(e.message); }
+   };
+   inp.addEventListener('input', () => { clearTimeout(t); t = setTimeout(buscar, 250); });
+   inp.addEventListener('focus', buscar);
+   res.addEventListener('click', (ev) => {
+     const b = ev.target.closest('[data-ne]'); if (!b) return;
+     res.hidden = true; inp.value = '';
+     escolherNE(destino, idxLinha, b.dataset.ug, b.dataset.ne);
+   });
+   document.addEventListener('click', (ev) => {
+     if (!ev.target.closest('.busca') &&
+         !(containerFiltros && containerFiltros.contains(ev.target)) &&
+         !(selEmpresa && selEmpresa.contains(ev.target))) {
+       res.hidden = true;
+     }
+   });
+   inp.addEventListener('change', () => {
+     const v = MASCARAS.ne(inp.value);
+     if (/^\d{4}NE\d{1,6}$/.test(v)) escolherNE(destino, idxLinha, ugFiltro, v);
+   });
 }
 function escolherNE(destino, idxLinha, ug, chave) {
   const st = estados[tipo];
-  if (tipo === 'reforco') { st.empenho = { ug, ne: chave }; st.itens = []; st.fonte = { nc: '', emitente: '', ug: '', celula: '', nd_destino: '', nc_detalhamento: '' }; }
+  if (tipo === 'reforco') {
+    st.empenho = { ug, ne: chave };
+    st.itens = [];
+    if (!st.fonte) st.fonte = { nc: '', emitente: '', ug: '', celula: '', nd_destino: '', nc_detalhamento: '' };
+  }
   else { st.empenhos[idxLinha] = { ...st.empenhos[idxLinha], ug, ne: chave }; }
   agendar(true);
 }
@@ -1891,7 +2419,23 @@ function renderNE() {
   sincronizarCampos(upl);
   $('#btn-up-ne')?.addEventListener('click', () => subirNE(st.empenho.ne, $('#ug-ne-up').value));
   if (!ne) { sel.innerHTML = st.empenho.ne ? `<p class="ajuda" style="margin-top:8px">NE informada: ${esc(st.empenho.ne)}</p>` : ''; itens.innerHTML = '<p class="ajuda">Escolha a NE para listar os itens.</p>'; return; }
-  sel.innerHTML = `<div class="sel" style="margin-top:10px"><div><strong>${esc(ne.chave)} · UG ${esc(ne.ug)} — ${esc(ne.favorecido_codigo || '')} ${esc(ne.favorecido || '')}</strong><small>${esc(ne.tipo_empenho || '')} · ND ${esc(ne.nd)} · PI ${esc(ne.pi)} · valor atual <strong>${brlNum(ne.valor_atual)}</strong> · valor inicial ${brlNum(ne.valor_incluido)}${ne.nc_da_ne ? ' · NC citada: ' + esc(ne.nc_da_ne) : ''}</small></div></div>`;
+  sel.innerHTML = `<div class="sel" style="margin-top:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <strong>${esc(ne.chave)} · UG ${esc(ne.ug)} — ${esc(ne.favorecido_codigo || '')} ${esc(ne.favorecido || '')}</strong>
+      <div>${chipSituacaoNe(ne)} ${chipPdfNe(ne)}</div>
+    </div>
+    <div style="margin-top:6px;font-size:0.9em;color:var(--text-sec, #555)">
+      <span>${esc(ne.tipo_empenho || '')} · ND ${esc(ne.nd)} · PI ${esc(ne.pi)} ${ne.versao ? `· Versão <strong>v${esc(ne.versao)}</strong>` : ''}</span>
+      <div style="margin-top:4px">
+        Valor inicial: <strong>${brlNum(ne.valor_incluido)}</strong>
+        ${parseDec(ne.valor_reforcado) > 0 ? ` · Reforçado: <strong style="color:var(--cor-sucesso,#198754)">+${brlNum(ne.valor_reforcado)}</strong>` : ''}
+        ${parseDec(ne.valor_anulado) > 0 ? ` · Anulado: <strong style="color:var(--cor-erro,#dc3545)">-${brlNum(ne.valor_anulado)}</strong>` : ''}
+        · Saldo em vigor: <strong style="font-size:1.05em;color:var(--text)">${brlNum(ne.valor_atual)}</strong>
+        ${ne.nc_da_ne ? ` · NC citada: ${esc(ne.nc_da_ne)}` : ''}
+      </div>
+    </div>
+    ${parseDec(ne.valor_atual) <= 0 ? `<div class="dica erro" style="margin-top:8px"><p>⚠️ <strong>Atenção:</strong> Esta NE está com saldo R$ 0,00 no SIAFI (totalmente anulada). Não é possível emitir reforço para empenho cancelado.</p></div>` : ''}
+  </div>`;
   if (ne.ncs_da_celula?.length) {
     sel.innerHTML += `<p class="ajuda" style="margin-top:8px">NC que levaram crédito a esta célula (ND ${esc(ne.nd)} · PI ${esc(ne.pi)}): ${ne.ncs_da_celula.map((c) => `<button type="button" class="btn-leve" data-usar-nc="${esc(c.chave)}" data-emit="${esc(c.emitente)}" title="${esc(c.nome_emitente || '')}">${esc(c.chave)}</button> <small>(UG ${esc(c.emitente)}, ${esc(c.data || '')}, ${brlNum(c.valor)})</small>`).join(' · ')}</p>`;
     $$('[data-usar-nc]', sel).forEach((b) => b.addEventListener('click', () => {
@@ -2092,7 +2636,13 @@ function renderEmpenhos() {
       }
     }
 
-    return `<div class="forn" data-ei="${i}"><header><strong>${r ? esc(r.chave) + ' · UG ' + esc(r.ug) + ' — ' + esc(r.favorecido || '') : 'Empenho ' + (i + 1)}</strong>${st.empenhos.length > 1 ? `<button type="button" class="btn-leve btn-perigo" data-rm-emp="${i}">Remover</button>` : ''}</header>
+    return `<div class="forn" data-ei="${i}"><header style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <strong>${r ? esc(r.chave) + ' · UG ' + esc(r.ug) + ' — ' + esc(r.favorecido || '') : 'Empenho ' + (i + 1)}</strong>
+      <div style="display:flex;align-items:center;gap:6px">
+        ${r ? chipSituacaoNe(r) : ''}
+        ${st.empenhos.length > 1 ? `<button type="button" class="btn-leve btn-perigo" data-rm-emp="${i}">Remover</button>` : ''}
+      </div>
+    </header>
       <div style="padding:12px"><div class="campo" data-campo="empenhos[${i}].ne"><label for="busca-ne${i}">NE (número, empresa/favorecido, CNPJ ou UG)</label>
       <div class="filtros-ug-ne" id="filtros-ug-ne${i}">
         <span class="ajuda-filtro">Unidade Gestora:</span>
@@ -2108,7 +2658,17 @@ function renderEmpenhos() {
       <div class="busca"><input id="busca-ne${i}" type="search" value="${esc(e.ne)}" placeholder="Ex.: 2026NE000165, nome da empresa ou CNPJ" autocomplete="off"><div class="resultados" id="res-ne${i}" hidden></div></div><span class="msg"></span></div>
       <div id="upload-ne${i}"></div>
       ${(ultimo.anulacao?.achados || []).some((a) => a.codigo === 'NE_AMBIGUA' && a.campo === `empenhos[${i}].ug`) ? `<div class="dica alerta" style="margin-top:10px"><p>${esc((ultimo.anulacao.achados.find((a) => a.codigo === 'NE_AMBIGUA' && a.campo === `empenhos[${i}].ug`)).mensagem)}</p><div class="grade">${campo({ rotulo: 'UG emitente da NE', bind: `empenhos[${i}].ug`, opcoes: Object.entries(CFG.unidade.ugs).map(([ug, d]) => ({ v: ug, t: `${ug} — ${d.rotulo}` })) })}</div></div>` : ''}
-      ${r ? `<p class="dica" style="margin-top:8px">Valor atual da NE: <strong>${brlNum(r.valor_atual)}</strong>${r.nc ? ' · NC citada: ' + esc(r.nc) : ''}</p>` : ''}
+      ${r ? `
+        <div class="dica" style="margin-top:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>Saldo atual em vigor no SIAFI: <strong style="font-size:1.05rem">${brlNum(r.valor_atual)}</strong> (Inicial: ${brlNum(r.valor_incluido || r.valor_atual)})</span>
+            ${r.nc ? `<span>NC citada: <strong>${esc(r.nc)}</strong></span>` : ''}
+          </div>
+          ${parseDec(r.valor_reforcado) > 0 ? `<div style="font-size:0.85em;color:var(--cor-sucesso,#198754);margin-top:2px">🟢 Total já reforçado nesta NE: +${brlNum(r.valor_reforcado)}</div>` : ''}
+          ${parseDec(r.valor_anulado) > 0 ? `<div style="font-size:0.85em;color:var(--cor-erro,#dc3545);margin-top:2px">🔴 Total já anulado nesta NE: -${brlNum(r.valor_anulado)}</div>` : ''}
+          ${parseDec(r.valor_atual) <= 0 ? `<div style="margin-top:6px;font-weight:700;color:var(--cor-erro,#dc3545)">⚠️ Esta NE já se encontra totalmente anulada (saldo R$ 0,00).</div>` : ''}
+        </div>
+      ` : ''}
       <div class="grade" style="margin-top:10px">${radios({ rotulo: 'Anulação', bind: `empenhos[${i}].tipo`, opcoes: [{ v: 'TOTAL', t: 'Total' }, { v: 'PARCIAL', t: 'Parcial' }] })}
         ${e.tipo === 'PARCIAL' ? campo({ rotulo: 'Valor a anular (R$)', bind: `empenhos[${i}].valor`, mascara: 'numero', extra: 'inputmode="decimal"', ajuda: 'Calculado automaticamente pela soma dos itens discriminados, ou informe diretamente.' }) : ''}
         ${campo({ rotulo: 'Valor já liquidado (R$) — conforme SIAFI', bind: `empenhos[${i}].liquidado`, mascara: 'numero', placeholder: '0,00', extra: 'inputmode="decimal"', ajuda: 'Obrigatório: digite 0,00 se nada foi liquidado.' })}</div>
@@ -3362,8 +3922,14 @@ function gatilhos(caminho, el) {
       }
     }
   }
-  if (/^fonte\.(nc|emitente|ug|celula|nd_destino|nc_detalhamento)$/.test(caminho) && el.tagName === 'SELECT') cacheSugestao.clear();
+  if (/^fontes?(\[\d+\])?\.(nc|emitente|ug|celula|nd_destino|nc_detalhamento)$/.test(caminho) && el.tagName === 'SELECT') cacheSugestao.clear();
   if (caminho === 'fonte.nc') { st.fonte.emitente = ''; st.fonte.ug = ''; st.fonte.celula = ''; st.fonte.nd_destino = ''; st.fonte.nc_detalhamento = ''; }
+  const mF = caminho.match(/^fontes\[(\d+)\]\.nc$/);
+  if (mF && st.fontes && st.fontes[mF[1]]) {
+    const fk = st.fontes[mF[1]];
+    fk.emitente = ''; fk.ug = ''; fk.celula = ''; fk.nd_destino = ''; fk.nc_detalhamento = '';
+    if (mF[1] === '0') st.fonte = { ...fk };
+  }
 }
 
 // ---------------------------------------------------------------- validação
@@ -3390,10 +3956,36 @@ function payload() {
     p.contrato.possui = p.contrato.possui === true || p.contrato.possui === 'true';
     p.adesao.documentos = Object.fromEntries(Object.entries(p.adesao.documentos || {}).map(([k, v]) => [k, v && v.id]).filter(([, v]) => v));
     p.pca.consta = !(p.pca.consta === false || p.pca.consta === 'false');
-    const fk = p.fonte; if (!fk.nd_destino) delete fk.nd_destino; if (!fk.nc_detalhamento) delete fk.nc_detalhamento; if (!fk.emitente) delete fk.emitente; if (!fk.ug) delete fk.ug;
+    if (Array.isArray(p.fontes)) {
+      p.fontes.forEach((fk) => {
+        if (!fk.nd_destino) delete fk.nd_destino;
+        if (!fk.nc_detalhamento) delete fk.nc_detalhamento;
+        if (!fk.emitente) delete fk.emitente;
+        if (!fk.ug) delete fk.ug;
+      });
+      p.fonte = p.fontes[0] || p.fonte;
+    } else {
+      const fk = p.fonte; if (!fk.nd_destino) delete fk.nd_destino; if (!fk.nc_detalhamento) delete fk.nc_detalhamento; if (!fk.emitente) delete fk.emitente; if (!fk.ug) delete fk.ug;
+    }
   }
   if (tipo === 'reforco') {
-    const fk = p.fonte; if (!fk.nd_destino) delete fk.nd_destino; if (!fk.nc_detalhamento) delete fk.nc_detalhamento; if (!fk.emitente) delete fk.emitente; if (!fk.ug) delete fk.ug; if (!fk.nc) delete fk.nc; if (!p.empenho.ug) delete p.empenho.ug;
+    if (Array.isArray(p.fontes)) {
+      p.fontes.forEach((fk) => {
+        if (!fk.nd_destino) delete fk.nd_destino;
+        if (!fk.nc_detalhamento) delete fk.nc_detalhamento;
+        if (!fk.emitente) delete fk.emitente;
+        if (!fk.ug) delete fk.ug;
+      });
+      p.fonte = p.fontes[0] || p.fonte;
+    } else if (p.fonte) {
+      const fk = p.fonte;
+      if (!fk.nd_destino) delete fk.nd_destino;
+      if (!fk.nc_detalhamento) delete fk.nc_detalhamento;
+      if (!fk.emitente) delete fk.emitente;
+      if (!fk.ug) delete fk.ug;
+    }
+    if (p.fonte && !p.fonte.nc) delete p.fonte.nc;
+    if (p.empenho && !p.empenho.ug) delete p.empenho.ug;
     p.itens.forEach((it) => { it.converter_valor = true; });
   }
   if (tipo === 'anulacao') {
@@ -3875,6 +4467,22 @@ async function iniciar() {
       btnSalvar.textContent = 'Salvar Alterações';
     }
   });
+  // Botão de Limpar Requisição / Novo DIEx
+  $('#btn-limpar-requisicao')?.addEventListener('click', () => {
+    const rotulos = { requisicao: 'a requisição', reforco: 'o reforço', anulacao: 'a anulação' };
+    const nomeAba = rotulos[tipo] || 'o formulário';
+    if (!confirm(`Deseja realmente limpar todos os campos d${nomeAba} e recomeçar do zero? Todos os dados não salvos deste formulário serão apagados.`)) {
+      return;
+    }
+    ls.del(`reqemp.rascunho.${tipo}`);
+    estados[tipo] = estadoInicial(tipo);
+    tocados.clear();
+    _hashForn = _hashAdesao = _hashEmp = _hashPca = '';
+    montar();
+    validar();
+    toast('Formulário limpo com sucesso! Você pode iniciar um novo preenchimento.');
+  });
+
   atualizarBadgeTramitacao();
   montar(); validar();
 }

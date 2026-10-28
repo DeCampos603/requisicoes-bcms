@@ -154,7 +154,7 @@ def _requisicao(d: dict, av: Avaliacao) -> dict:
     fornecedores = _fornecedores(d, av)
     norm = {
         "cabecalho": cab, "objeto": n.get("objeto"), "licitacao": _licitacao(d, av), "adesao": n.get("adesao"), "finalidade": _finalidade(d, av),
-        "tipo_empenho": te, "contrato": contrato, "pca": pca, "fonte": _fonte(d, av), "fornecedores": fornecedores,
+        "tipo_empenho": te, "contrato": contrato, "pca": pca, "fonte": _fonte(d, av), "fontes": av.norm.get("fontes") or [_fonte(d, av)], "fornecedores": fornecedores,
         "total": n.get("total") or sum((f["total"] or ZERO for f in fornecedores), ZERO), "anexar_nc": n.get("anexar_nc", True),
     }
     return textos.montar_requisicao(norm)

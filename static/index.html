@@ -11,7 +11,7 @@
   <meta name="theme-color" content="#0a1419" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/png" href="/static/img/brasao-bcms-64.png">
   <script src="/static/tema.js"></script>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=2.2.2">
 </head>
 <body>
   <header class="topo">
@@ -25,6 +25,7 @@
         <span class="ponto-salvo" aria-hidden="true"></span>
         <span id="texto-autosave">Rascunho salvo</span>
       </div>
+      <button type="button" class="btn-topo btn-limpar-topo" id="btn-limpar-requisicao" title="Limpar todos os campos do formulário atual e começar um novo preenchimento do zero">🗑️ Limpar / Novo</button>
       <button type="button" class="btn-topo" id="btn-autoridades" title="Configurar Ordenador de Despesas e Fiscal Administrativo">Autoridades (OD / Fiscal)</button>
       <button type="button" class="btn-topo" id="btn-tema" title="Alternar entre tema automático (do sistema), claro e escuro">Tema: automático</button>
       <button type="button" class="btn-topo" id="btn-atualizar" title="Reimporta NE, NC, saldos de crédito, pregões e PCA do repositório">Atualizar dados</button>
@@ -275,6 +276,6 @@
 
   <div class="toast" id="toast" role="status" hidden></div>
 
-  <script type="module" src="/static/app.js"></script>
+  <script type="module" src="/static/app.js?v=2.2.2"></script>
 </body>
 </html>

@@ -361,7 +361,15 @@ def _avaliar_nc(av: Avaliacao, fonte: dict, total: Decimal | None, objeto: str |
     # --- ND 00: detalhamento para uma ND de destino ---------------------------------------------
     if out["indetalhada"]:
         sug = classificacao.nd_de_destino_sugerida(descricoes or [], cel["nd"], objeto) or {"nd": None, "candidatas": []}
-        out["nds_candidatas"] = sug["candidatas"]
+        cands_objeto = sug.get("candidatas") or []
+        cands_todas = classificacao.nds_candidatas(cel["nd"], objeto=None)
+        vistos = set()
+        candidatas_finais = []
+        for c in cands_objeto + cands_todas:
+            if c["nd"] not in vistos:
+                vistos.add(c["nd"])
+                candidatas_finais.append(c)
+        out["nds_candidatas"] = candidatas_finais
         out["nd_destino_sugerida"] = sug["nd"]
         destino = fonte.get("nd_destino") or (celula_esperada or {}).get("nd")
         if not destino:
@@ -699,7 +707,7 @@ def _avaliar_contrato_pca(av: Avaliacao, d: dict, modalidade: str | None, data_d
 
 
 def _checar_subitem(av: Avaliacao, pi: str, n_item, desc: str | None, si: str | None, fonte: dict | None,
-                    objeto: str | None) -> dict | None:
+                    objeto: str | None, fontes: list[dict] | None = None) -> dict | None:
     """Sugere o subitem pela ND da NC (ou pela ND de destino do detalhamento) e confere o SI informado."""
     if not desc or not fonte or not classificacao.disponivel():
         return None
@@ -707,8 +715,10 @@ def _checar_subitem(av: Avaliacao, pi: str, n_item, desc: str | None, si: str | 
     if classificacao.nd_indetalhada(nd):  # ND de destino ainda não escolhida: nada a sugerir por elemento
         return None
     r = classificacao.verificar_subitem(desc, si or "", nd, objeto)
+    todas_fontes = [f for f in (fontes or [fonte]) if f and f.get("nd")]
     if si:
-        if r["si_existe"] is False:
+        validos = {x["subitem"] for f_ in todas_fontes for x in classificacao.subitens_do_elemento(f_["nd"])}
+        if validos and si not in validos:
             av.alerta("SI_FORA_DO_MANUAL", f"{pi}.si",
                       f"Item {n_item}: o subitem {si} não existe no Manual de Classificação da Despesa para a ND {nd}"
                       f" ({classificacao.nome_elemento(nd) or 'elemento'}).")
@@ -719,15 +729,16 @@ def _checar_subitem(av: Avaliacao, pi: str, n_item, desc: str | None, si: str | 
                       f"({rec['confianca'] if rec else ''}); foi informado {si}.")
     if r["nd_diverge"]:
         g = r["global_"]
-        av.alerta("ND_ITEM_DIVERGE_NC", f"{pi}.item",
-                  f"Item {n_item}: pela descrição, o item é classificado na ND {g['nd']} (subitem {g.get('subitem')} – {g.get('nome')}), "
-                  f"mas a NC está na ND {nd}. Verifique se é preciso outra NC ou o detalhamento/remanejamento de ND.")
+        if not any(f_.get("nd") == g.get("nd") for f_ in todas_fontes):
+            av.alerta("ND_ITEM_DIVERGE_NC", f"{pi}.item",
+                      f"Item {n_item}: pela descrição, o item é classificado na ND {g['nd']} (subitem {g.get('subitem')} – {g.get('nome')}), "
+                      f"mas a NC está na ND {nd}. Verifique se é preciso outra NC ou o detalhamento/remanejamento de ND.")
     return {"sugestoes": r["sugestoes"], "recomendada": r["recomendada"], "si_existe": r["si_existe"],
             "global": r["global_"]}
 
 
 def _avaliar_itens_requisicao(av: Avaliacao, d: dict, lic: dict | None, fonte: dict | None, hoje: date,
-                              data_doc: date | None) -> list[dict] | None:
+                              data_doc: date | None, fontes: list[dict] | None = None) -> list[dict] | None:
     fornecedores = d.get("fornecedores") or []
     if not fornecedores:
         av.erro("SEM_ITENS", "fornecedores", "Inclua ao menos um fornecedor com um item.")
@@ -841,7 +852,7 @@ def _avaliar_itens_requisicao(av: Avaliacao, d: dict, lic: dict | None, fonte: d
                                   "Decreto 11.462/2023, art. 34, parágrafo único")
             if desc is None or und not in unidades or qtde is None or vu is None or si is None or n_item is None:
                 ok_geral = False
-            sugestao = _checar_subitem(av, pi, n_item, desc, si, fonte, d.get("objeto"))
+            sugestao = _checar_subitem(av, pi, n_item, desc, si, fonte, d.get("objeto"), fontes=fontes)
             ref_cat = ref
             if ref_cat and ref_cat.get("catmat"):
                 itens_cat.append({"tipo": modulo_pca.tipo_catalogo(ref_cat.get("catalogo")), "codigo": ref_cat["catmat"],
@@ -979,9 +990,48 @@ def avaliar_requisicao(d: dict) -> Avaliacao:
             except (ValorInvalido, TypeError, ArithmeticError):
                 pass
     descricoes = [str(it.get("descricao") or "") for f in d.get("fornecedores") or [] for it in f.get("itens") or []]
-    fonte = _avaliar_nc(av, d.get("fonte") or {}, total_prev or None, objeto, hoje, descricoes=descricoes)
-    fonte_ok = fonte if fonte and "nd" in fonte else None
-    fornecedores = _avaliar_itens_requisicao(av, d, lic, fonte_ok, hoje, data_doc)
+
+    # Suporte a múltiplas fontes de recurso (NCs) ou fonte única
+    fontes_in = d.get("fontes")
+    if not isinstance(fontes_in, list) or not fontes_in:
+        fontes_in = [d.get("fonte") or {}]
+
+    fontes_avaliadas = []
+    fontes_ok = []
+    e_multiplas = len(fontes_in) > 1
+
+    for i, f_in in enumerate(fontes_in):
+        campo_f = f"fontes[{i}]" if e_multiplas else "fonte"
+        f_eval = _avaliar_nc(
+            av, f_in or {},
+            total_prev if not e_multiplas else None,
+            objeto, hoje,
+            campo=campo_f,
+            descricoes=descricoes
+        )
+        fontes_avaliadas.append(f_eval)
+        if f_eval and "nd" in f_eval:
+            fontes_ok.append(f_eval)
+
+    # Avaliação consolidada de saldo para múltiplas NCs
+    if e_multiplas and fontes_ok:
+        total_credito = sum(
+            (f["credito"]["disponivel"] for f in fontes_ok if f.get("credito") and f["credito"].get("disponivel") is not None),
+            ZERO
+        )
+        if total_credito > ZERO:
+            if total_prev is not None and total_prev > total_credito:
+                av.alerta(
+                    "SALDO_NC_INSUFICIENTE", "fontes",
+                    f"Valor solicitado ({brl(total_prev)}) maior que a soma do crédito disponível nas NCs ({brl(total_credito)}). "
+                    f"Confirme o saldo atual no Tesouro Gerencial/SIAFI antes de seguir.",
+                    "Lei 4.320/1964, art. 59; Decreto 93.872/1986, art. 26"
+                )
+            else:
+                av.info("SALDO_OK", "fontes", f"Soma do crédito disponível nas {len(fontes_ok)} NCs: {brl(total_credito)}.")
+
+    fonte_ok = fontes_ok[0] if fontes_ok else None
+    fornecedores = _avaliar_itens_requisicao(av, d, lic, fonte_ok, hoje, data_doc, fontes=fontes_ok)
     total = sum((f["total"] for f in fornecedores), ZERO) if fornecedores else total_prev
     _avaliar_limite_dispensa(av, lic, total, data_doc)
     resumo_pca = _conferir_pca(av, pca, d, data_doc, av.norm.get("itens_catalogo", []), (fin or {}).get("texto"))
@@ -990,18 +1040,36 @@ def avaliar_requisicao(d: dict) -> Avaliacao:
     if lic:
         resumo["licitacao"] = {"numero": lic.get("numero"), "ugg": lic.get("ugg"), "nome_om": lic.get("nome_om"),
                                "tipo_unidade": lic.get("tipo_unidade"), "origem": lic.get("origem")}
-    if fonte_ok:
-        resumo["fonte"] = {k: fonte_ok[k] for k in ("ug", "nc", "emitente", "nome_emitente", "nd", "pi", "ptres", "ugr", "fonte_rec")}
-        resumo["fonte"]["celulas"] = [{k: c[k] for k in ("seq", "nd", "pi", "ptres", "ugr", "fonte", "valor")} for c in fonte_ok["celulas"]]
-        _resumo_fonte_extra(resumo["fonte"], fonte_ok)
-        if fonte_ok.get("prazo_empenho"):
-            resumo["fonte"]["prazo_empenho"] = fonte_ok["prazo_empenho"].isoformat()
-    elif fonte:
-        resumo["fonte"] = _resumo_fonte_pendente(fonte)
+
+    # Resumo das fontes
+    resumo_fontes = []
+    for fok in fontes_ok:
+        rf = {k: fok[k] for k in ("ug", "nc", "emitente", "nome_emitente", "nd", "pi", "ptres", "ugr", "fonte_rec")}
+        rf["celulas"] = [{k: c[k] for k in ("seq", "nd", "pi", "ptres", "ugr", "fonte", "valor")} for c in fok["celulas"]]
+        _resumo_fonte_extra(rf, fok)
+        if fok.get("prazo_empenho"):
+            rf["prazo_empenho"] = fok["prazo_empenho"].isoformat()
+        if fok.get("credito"):
+            rf["credito"] = {
+                "disponivel": float(fok["credito"]["disponivel"]),
+                "provisionado": float(fok["credito"].get("provisionado") or 0.0),
+                "empenhado": float(fok["credito"].get("empenhado") or 0.0),
+                "origem": fok["credito"].get("origem"),
+                "posicao": fok["credito"].get("posicao"),
+            }
+        resumo_fontes.append(rf)
+
+    if resumo_fontes:
+        resumo["fontes"] = resumo_fontes
+        resumo["fonte"] = resumo_fontes[0]
+    elif fontes_avaliadas and any(fontes_avaliadas):
+        resumo["fontes"] = [_resumo_fonte_pendente(f) if f else None for f in fontes_avaliadas]
+        resumo["fonte"] = resumo["fontes"][0] if resumo["fontes"] else None
+
     av.norm.update({
         "resumo": resumo, "cabecalho": cab, "objeto": objeto, "licitacao": lic, "adesao": adesao, "finalidade": fin,
-        "tipo_empenho": te, "contrato": contrato, "pca": pca, "fonte": fonte_ok, "fornecedores": fornecedores,
-        "total": total, "anexar_nc": _bool(d.get("anexar_nc"), padrao=True),
+        "tipo_empenho": te, "contrato": contrato, "pca": pca, "fonte": fonte_ok, "fontes": fontes_ok,
+        "fornecedores": fornecedores, "total": total, "anexar_nc": _bool(d.get("anexar_nc"), padrao=True),
     })
     return av
 
@@ -1076,7 +1144,7 @@ def _dados_ne_resumo(ne: dict) -> dict:
     return {"ug": ne["ug_pasta"], "chave": ne["chave"], "favorecido_codigo": mascarar_cpf(ne.get("favorecido_codigo")),
             "favorecido_nome": base.nome_completo_fornecedor(ne.get("favorecido_codigo"), ne.get("favorecido_nome")), "data_emissao": ne.get("data_emissao"),
             "tipo_empenho": ne.get("tipo_empenho"), "nd": ne.get("nd"), "pi": ne.get("pi"), "ptres": ne.get("ptres"),
-            "ugr": ne.get("ugr"), "fonte": ne.get("fonte"), "processo": ne.get("processo"),
+            "ugr": ne.get("ugr"), "fonte": ne.get("fonte"), "nc": ne.get("nc") or ne.get("fonte"), "processo": ne.get("processo"),
             "valor_atual": Decimal(ne["valor_atual"]), "valor_incluido": Decimal(ne["valor_incluido"]),
             "valor_reforcado": Decimal(ne["valor_reforcado"]), "valor_anulado": Decimal(ne["valor_anulado"]),
             "descricao": ne.get("descricao"), "derivados": ne.get("derivados") or {}, "arquivo": ne.get("caminho"),

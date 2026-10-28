@@ -258,18 +258,25 @@ def api_ne_upload(arquivo: UploadFile = File(...), numero: str = Form(...), ug: 
     return {"ok": True, "chave": ne["chave"], "ug": ne["ug_pasta"], "arquivo": ne["arquivo"]}
 
 
-# ----------------------------------------------------------------------------- PCA
+# ----------------------------------------------------------------------------- PCA / PNCP
 @app.get("/api/pca")
 def api_pca(ano: int = 0, q: str = "") -> dict:
-    """Contratações do PCA do BCMS (para pesquisar e preencher "Nr da contratação"/"Classe"). Sem o ano do PCA, usa o mais recente anterior."""
+    """Contratações e itens do PCA / PNCP do BCMS (para pesquisar e preencher 'Nr da contratação' e 'Classe')."""
     ano = ano or date.today().year
     if not 2000 <= ano <= 2100:
         raise HTTPException(422, "Ano inválido.")
     anos = pca.anos_disponiveis()
     usado = ano if ano in anos else max((a for a in anos if a <= ano), default=(max(anos) if anos else None))
-    return {"ano": ano, "ano_usado": usado, "anos": anos, "uasg": config.unidade()["pca"]["uasg"],
-            "aviso": (f"O PCA {ano} do BCMS não está publicado no PGC/PNCP: lista do PCA {usado}." if usado and usado != ano else None),
-            "contratacoes": pca.listar(usado, q[:80]) if usado else []}
+    contratacoes = pca.listar(usado, q[:80]) if usado else []
+    return {
+        "ano": ano,
+        "ano_usado": usado,
+        "anos": anos,
+        "uasg": config.unidade().get("pca", {}).get("uasg", "160329"),
+        "aviso": (f"O PCA {ano} do BCMS não está publicado no PGC/PNCP: lista do PCA {usado}." if usado and usado != ano else None),
+        "total": len(contratacoes),
+        "contratacoes": contratacoes,
+    }
 
 
 # ----------------------------------------------------------------------------- classificação
@@ -326,33 +333,62 @@ def _nome_arquivo(base_nome: str) -> str:
     return f"{limpo}_{time.strftime('%Y%m%d-%H%M%S')}"
 
 
-def _anexos_do_documento(av: regras.Avaliacao) -> list[tuple[str, Path]]:
+def _anexos_do_documento(av: regras.Avaliacao, dados: dict | None = None) -> list[tuple[str, Path]]:
     n = av.norm
+    d = dados or {}
     saida: list[tuple[str, Path]] = []
     if av.tipo == "REQUISICAO":
         for doc in (n.get("adesao") or {}).get("documentos") or []:  # instrução da adesão, antes da NC (mesma ordem do "Anexos:" do DIEx)
             p = Path(doc["caminho"]) if doc.get("caminho") else None
             if p and p.is_file():
                 saida.append((doc["rotulo"], p))
-        if n.get("anexar_nc") and n.get("fonte"):
-            arq_nc = anexos.localizar_anexo_nc(n["fonte"])
-            if arq_nc:
-                saida.append((f"NC {n['fonte']['nc']}", arq_nc))
+        anexar_nc = n.get("anexar_nc")
+        if anexar_nc is None:
+            anexar_nc = d.get("anexar_nc", True)
+        if anexar_nc:
+            fontes_list = (
+                n.get("fontes")
+                or ([n["fonte"]] if n.get("fonte") else [])
+                or (d.get("fontes") if isinstance(d.get("fontes"), list) else [])
+                or ([d["fonte"]] if isinstance(d.get("fonte"), dict) and d["fonte"].get("nc") else [])
+            )
+            for f in fontes_list:
+                if isinstance(f, dict) and f.get("nc"):
+                    arq_nc = anexos.localizar_anexo_nc(f)
+                    if arq_nc:
+                        rot = f"NC {f['nc']}"
+                        if (rot, arq_nc) not in saida:
+                            saida.append((rot, arq_nc))
     if av.tipo == "REFORCO":
-        if n.get("ne"):
-            arq_ne = anexos.localizar_anexo_ne(n["ne"])
+        ne_dict = n.get("ne") or d.get("empenho")
+        if isinstance(ne_dict, dict) and (ne_dict.get("chave") or ne_dict.get("ne")):
+            arq_ne = anexos.localizar_anexo_ne(ne_dict)
             if arq_ne:
-                saida.append((f"NE {n['ne']['chave']}", arq_ne))
-        if n.get("fonte"):
-            arq_nc = anexos.localizar_anexo_nc(n["fonte"])
-            if arq_nc:
-                saida.append((f"NC {n['fonte']['nc']}", arq_nc))
+                rot_ne = f"NE {ne_dict.get('chave') or ne_dict.get('ne')}"
+                saida.append((rot_ne, arq_ne))
+        fontes_ref = (
+            n.get("fontes")
+            or ([n["fonte"]] if n.get("fonte") else [])
+            or (d.get("fontes") if isinstance(d.get("fontes"), list) else [])
+            or ([d["fonte"]] if isinstance(d.get("fonte"), dict) and d["fonte"].get("nc") else [])
+        )
+        for f in fontes_ref:
+            if isinstance(f, dict) and f.get("nc"):
+                arq_nc = anexos.localizar_anexo_nc(f)
+                if arq_nc:
+                    rot_nc = f"NC {f['nc']}"
+                    if (rot_nc, arq_nc) not in saida:
+                        saida.append((rot_nc, arq_nc))
     if av.tipo == "ANULACAO":
-        for r in n.get("empenhos") or []:
-            arq_ne = anexos.localizar_anexo_ne(r)
-            if arq_ne:
-                saida.append((f"NE {r['chave']}", arq_ne))
-    return [(r, p) for r, p in saida if p.is_file()]
+        empenhos_list = n.get("empenhos") or d.get("empenhos") or []
+        for r in empenhos_list:
+            if isinstance(r, dict) and (r.get("chave") or r.get("ne")):
+                arq_ne = anexos.localizar_anexo_ne(r)
+                if arq_ne:
+                    rot_ne = f"NE {r.get('chave') or r.get('ne')}"
+                    if (rot_ne, arq_ne) not in saida:
+                        saida.append((rot_ne, arq_ne))
+    return [(r, p) for r, p in saida if p and Path(p).is_file()]
 
 
 
@@ -364,7 +400,7 @@ def api_gerar(tipo: str, dados: dict) -> JSONResponse:
     doc = textos.MONTADORES[av.tipo](av.norm)
     nome = _nome_arquivo(doc["arquivo_base"])
     config.SAIDA.mkdir(parents=True, exist_ok=True)
-    anx = _anexos_do_documento(av)
+    anx = _anexos_do_documento(av, dados=dados)
     try:
         pdf_doc = pdf_docs.gerar_pdf_documento(doc, config.SAIDA / f"{nome}.pdf")
     except LayoutError as exc:  # texto que não cabe na página, mesmo quebrando a linha
@@ -469,7 +505,7 @@ def api_gerar_word(tipo: str, dados: dict) -> JSONResponse:
 
     nome = _nome_arquivo(doc.get("arquivo_base") or f"DIEx_{tipo_norm}_word")
     config.SAIDA.mkdir(parents=True, exist_ok=True)
-    anx = _anexos_do_documento(av)
+    anx = _anexos_do_documento(av, dados=dados)
     try:
         docx_doc = docx_docs.gerar_docx_documento(doc, config.SAIDA / f"{nome}.docx", anexos=anx)
     except Exception as exc:

@@ -41,10 +41,16 @@ def _pasta_robo() -> Path:
 
 
 def _modulos():
-    """Carrega classificador_nd e nd_referencia sem executar o __init__ do pacote do robô (Playwright/Tk)."""
+    """Carrega classificador_nd e nd_referencia internamente (app.robo_nd) ou pelo robô externo."""
     with _trava:
         if "cls" in _mods:
             return _mods.get("cls"), _mods.get("ref")
+        try:
+            from .robo_nd import classificador_nd as cls, nd_referencia as ref
+            _mods["cls"], _mods["ref"] = cls, ref
+            return cls, ref
+        except Exception:
+            pass
         pasta = _pasta_robo()
         if not (pasta / "classificador_nd.py").is_file():
             _mods["cls"] = _mods["ref"] = None
@@ -91,6 +97,7 @@ MAPA_ELEMENTOS_PADRAO = {
     ("3", "15"): "DIÁRIAS - MILITAR",
     ("3", "92"): "DESPESAS DE EXERCÍCIOS ANTERIORES",
     ("3", "93"): "INDENIZAÇÕES E RESTITUIÇÕES",
+    ("3", "52"): "EQUIPAMENTOS E MATERIAL PERMANENTE",
     ("4", "52"): "EQUIPAMENTOS E MATERIAL PERMANENTE",
     ("4", "51"): "OBRAS E INSTALAÇÕES",
     ("4", "39"): "OUTROS SERVIÇOS DE TERCEIROS - PJ (CAPITAL)",
@@ -129,17 +136,51 @@ def nome_elemento(nd: str) -> str | None:
     return MAPA_ELEMENTOS_PADRAO.get((nd[1], elemento_da_nd(nd)))
 
 
-def nds_candidatas(nd_nc: str, objeto: str | None) -> list[dict]:
-    """NDs de destino possíveis para detalhar uma NC com ND 00 (mesma categoria/grupo/modalidade)."""
+def nds_candidatas(nd_nc: str, objeto: str | None = None) -> list[dict]:
+    """NDs de destino possíveis para detalhar uma NC com ND 00."""
     if not nd_indetalhada(nd_nc):
         return []
-    elementos = {"MATERIAL": ELEMENTOS_MATERIAL, "SERVICO": ELEMENTOS_SERVICO}.get(objeto or "", ELEMENTOS_MATERIAL + ELEMENTOS_SERVICO)
-    saida = []
-    for e in elementos:
-        nd = nd_nc[:4] + e
-        nome = nome_elemento(nd) or f"ELEMENTO DE DESPESA {e}"
-        saida.append({"nd": nd, "elemento": e, "nome": nome})
-    return saida
+    pfx = nd_nc[:4]
+
+    if objeto == "MATERIAL":
+        if pfx == "4490":
+            return [
+                {"nd": "449052", "elemento": "52", "nome": "EQUIPAMENTOS E MATERIAL PERMANENTE"},
+            ]
+        return [
+            {"nd": f"{pfx}30", "elemento": "30", "nome": "MATERIAL DE CONSUMO"},
+        ]
+    elif objeto == "SERVICO":
+        elem_serv = ["39", "40", "36", "37", "33", "35", "15", "14", "93"]
+        saida = []
+        for e in elem_serv:
+            nd = f"{pfx}{e}"
+            nome = nome_elemento(nd) or f"ELEMENTO DE DESPESA {e}"
+            saida.append({"nd": nd, "elemento": e, "nome": nome})
+        if pfx == "4490":
+            saida.append({"nd": "449051", "elemento": "51", "nome": "OBRAS E INSTALAÇÕES"})
+        return saida
+    else:
+        if pfx == "4490":
+            return [
+                {"nd": "449052", "elemento": "52", "nome": "EQUIPAMENTOS E MATERIAL PERMANENTE"},
+                {"nd": "449039", "elemento": "39", "nome": "OUTROS SERVIÇOS DE TERCEIROS - PJ (CAPITAL)"},
+                {"nd": "449040", "elemento": "40", "nome": "SERVIÇOS DE TECNOLOGIA DA INFORMAÇÃO E COMUNICAÇÃO - PJ (CAPITAL)"},
+                {"nd": "449051", "elemento": "51", "nome": "OBRAS E INSTALAÇÕES"},
+            ]
+        return [
+            {"nd": f"{pfx}30", "elemento": "30", "nome": "MATERIAL DE CONSUMO"},
+            {"nd": f"{pfx}39", "elemento": "39", "nome": "OUTROS SERVIÇOS DE TERCEIROS - PESSOA JURÍDICA"},
+            {"nd": f"{pfx}40", "elemento": "40", "nome": "SERVIÇOS DE TECNOLOGIA DA INFORMAÇÃO E COMUNICAÇÃO - PJ"},
+            {"nd": f"{pfx}36", "elemento": "36", "nome": "OUTROS SERVIÇOS DE TERCEIROS - PESSOA FÍSICA"},
+            {"nd": f"{pfx}37", "elemento": "37", "nome": "LOCAÇÃO DE MÃO-DE-OBRA"},
+            {"nd": f"{pfx}33", "elemento": "33", "nome": "PASSAGENS E DESPESAS COM LOCOMOÇÃO"},
+            {"nd": f"{pfx}15", "elemento": "15", "nome": "DIÁRIAS - MILITAR"},
+            {"nd": f"{pfx}14", "elemento": "14", "nome": "DIÁRIAS - CIVIL"},
+            {"nd": f"{pfx}35", "elemento": "35", "nome": "SERVIÇOS DE CONSULTORIA"},
+            {"nd": f"{pfx}93", "elemento": "93", "nome": "INDENIZAÇÕES E RESTITUIÇÕES"},
+            {"nd": f"{pfx}92", "elemento": "92", "nome": "DESPESAS DE EXERCÍCIOS ANTERIORES"},
+        ]
 
 
 # ----------------------------------------------------------------------------- sugestões

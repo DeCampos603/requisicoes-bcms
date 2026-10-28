@@ -295,57 +295,134 @@ def gerar_docx_documento(doc: dict, destino: Path, anexos: list[tuple[str, Path]
             p_sep_c.paragraph_format.space_before = Pt(2)
             p_sep_c.paragraph_format.space_after = Pt(2)
 
-            tbl_c = d.add_table(rows=2 if not tab_c.get("detalhamento") else 3, cols=8)
-            tbl_c.alignment = WD_TABLE_ALIGNMENT.CENTER
-            tbl_c.autofit = False
+            if tab_c.get("multiplas") and tab_c.get("linhas"):
+                linhas_c = tab_c["linhas"]
+                n_rows = 1 + len(linhas_c) + 1 + (1 if tab_c.get("detalhamento") else 0)
+                tbl_c = d.add_table(rows=n_rows, cols=8)
+                tbl_c.alignment = WD_TABLE_ALIGNMENT.CENTER
+                tbl_c.autofit = False
 
-            larguras_c = [Cm(2.8), Cm(1.7), Cm(1.7), Cm(1.8), Cm(3.2), Cm(1.6), Cm(1.6), Cm(3.3)]
-            for col_i, w in enumerate(larguras_c):
-                tbl_c.columns[col_i].width = w
+                larguras_c = [Cm(2.8), Cm(1.7), Cm(1.7), Cm(1.8), Cm(3.2), Cm(1.6), Cm(1.6), Cm(3.3)]
+                for col_i, w in enumerate(larguras_c):
+                    tbl_c.columns[col_i].width = w
 
-            # Cabeçalho da tabela de crédito
-            titulos_c = ("NOTA DE CRÉDITO", "UG EMIT", "UG EXEC", "ND", "PLANO INTERNO (PI)", "PTRES", "UGR", "VALOR SOLICITADO")
-            for col_i, h_tit in enumerate(titulos_c):
-                cell_h = tbl_c.cell(0, col_i)
-                _sombrear_celula(cell_h, "EEF2F6")
-                _definir_bordas_celula(cell_h, cor="718096", sz="4")
-                _margens_celula(cell_h, 50, 50, 40, 40)
-                p_ch = cell_h.paragraphs[0]
-                p_ch.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                p_ch.paragraph_format.space_after = Pt(0)
-                _aplicar_formatacao_paragrafo(p_ch, h_tit, tamanho_pt=8.5, negrito_padrao=True)
+                titulos_c = ("NOTA DE CRÉDITO", "UG EMIT", "UG EXEC", "ND", "PLANO INTERNO (PI)", "PTRES", "UGR", "CRÉDITO DISP.")
+                for col_i, h_tit in enumerate(titulos_c):
+                    cell_h = tbl_c.cell(0, col_i)
+                    _sombrear_celula(cell_h, "EEF2F6")
+                    _definir_bordas_celula(cell_h, cor="718096", sz="4")
+                    _margens_celula(cell_h, 50, 50, 40, 40)
+                    p_ch = cell_h.paragraphs[0]
+                    p_ch.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    p_ch.paragraph_format.space_after = Pt(0)
+                    _aplicar_formatacao_paragrafo(p_ch, h_tit, tamanho_pt=8.5, negrito_padrao=True)
 
-            # Linha de dados
-            vals_c = [
-                (tab_c.get("nc", "—"), WD_ALIGN_PARAGRAPH.CENTER, True),
-                (tab_c.get("emitente", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
-                (tab_c.get("ug", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
-                (tab_c.get("nd", "—"), WD_ALIGN_PARAGRAPH.CENTER, True),
-                (tab_c.get("pi", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
-                (tab_c.get("ptres", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
-                (tab_c.get("ugr", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
-                (tab_c.get("valor", "—"), WD_ALIGN_PARAGRAPH.RIGHT, True),
-            ]
-            for col_i, (v_txt, v_align, v_neg) in enumerate(vals_c):
-                cell_d = tbl_c.cell(1, col_i)
-                _definir_bordas_celula(cell_d, cor="718096", sz="4")
-                _margens_celula(cell_d, 50, 50, 40, 40)
-                p_cd = cell_d.paragraphs[0]
-                p_cd.alignment = v_align
-                p_cd.paragraph_format.space_after = Pt(0)
-                _aplicar_formatacao_paragrafo(p_cd, v_txt, tamanho_pt=9.5, negrito_padrao=v_neg)
+                for idx_l, r_c in enumerate(linhas_c):
+                    row_i = 1 + idx_l
+                    vals_c = [
+                        (r_c.get("nc", "—"), WD_ALIGN_PARAGRAPH.CENTER, True),
+                        (r_c.get("emitente", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
+                        (r_c.get("ug", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
+                        (r_c.get("nd", "—"), WD_ALIGN_PARAGRAPH.CENTER, True),
+                        (r_c.get("pi", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
+                        (r_c.get("ptres", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
+                        (r_c.get("ugr", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
+                        (r_c.get("valor", "—"), WD_ALIGN_PARAGRAPH.RIGHT, True),
+                    ]
+                    for col_i, (v_txt, v_align, v_neg) in enumerate(vals_c):
+                        cell_d = tbl_c.cell(row_i, col_i)
+                        _definir_bordas_celula(cell_d, cor="718096", sz="4")
+                        _margens_celula(cell_d, 50, 50, 40, 40)
+                        p_cd = cell_d.paragraphs[0]
+                        p_cd.alignment = v_align
+                        p_cd.paragraph_format.space_after = Pt(0)
+                        _aplicar_formatacao_paragrafo(p_cd, v_txt, tamanho_pt=9.5, negrito_padrao=v_neg)
 
-            # Linha de detalhamento (se houver)
-            if tab_c.get("detalhamento"):
-                cell_det = tbl_c.cell(2, 0)
-                for ck in range(1, 8):
-                    cell_det.merge(tbl_c.cell(2, ck))
-                _sombrear_celula(cell_det, "F8FAFC")
-                _definir_bordas_celula(cell_det, cor="718096", sz="4")
-                _margens_celula(cell_det, 50, 50, 60, 60)
-                p_det = cell_det.paragraphs[0]
-                p_det.paragraph_format.space_after = Pt(0)
-                _aplicar_formatacao_paragrafo(p_det, f"<b>Detalhamento de Crédito:</b> {tab_c['detalhamento']}", tamanho_pt=8.5)
+                # Linha de total da requisição
+                tot_r = 1 + len(linhas_c)
+                cell_tot_lbl = tbl_c.cell(tot_r, 0)
+                for ck in range(1, 7):
+                    cell_tot_lbl.merge(tbl_c.cell(tot_r, ck))
+                _sombrear_celula(cell_tot_lbl, "EEF2F6")
+                _definir_bordas_celula(cell_tot_lbl, cor="718096", sz="4")
+                _margens_celula(cell_tot_lbl, 50, 50, 40, 40)
+                p_tot_lbl = cell_tot_lbl.paragraphs[0]
+                p_tot_lbl.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                p_tot_lbl.paragraph_format.space_after = Pt(0)
+                _aplicar_formatacao_paragrafo(p_tot_lbl, "TOTAL DA REQUISIÇÃO", tamanho_pt=9.0, negrito_padrao=True)
+
+                cell_tot_val = tbl_c.rows[tot_r].cells[-1]
+                _sombrear_celula(cell_tot_val, "EEF2F6")
+                _definir_bordas_celula(cell_tot_val, cor="718096", sz="4")
+                _margens_celula(cell_tot_val, 50, 50, 40, 40)
+                p_tot_val = cell_tot_val.paragraphs[0]
+                p_tot_val.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                p_tot_val.paragraph_format.space_after = Pt(0)
+                _aplicar_formatacao_paragrafo(p_tot_val, tab_c.get("total", "—"), tamanho_pt=9.5, negrito_padrao=True)
+
+                if tab_c.get("detalhamento"):
+                    det_r = tot_r + 1
+                    cell_det = tbl_c.cell(det_r, 0)
+                    for ck in range(1, 8):
+                        cell_det.merge(tbl_c.cell(det_r, ck))
+                    _sombrear_celula(cell_det, "F8FAFC")
+                    _definir_bordas_celula(cell_det, cor="718096", sz="4")
+                    _margens_celula(cell_det, 50, 50, 60, 60)
+                    p_det = cell_det.paragraphs[0]
+                    p_det.paragraph_format.space_after = Pt(0)
+                    _aplicar_formatacao_paragrafo(p_det, f"<b>Detalhamento de Crédito:</b> {tab_c['detalhamento']}", tamanho_pt=8.5)
+            else:
+                tbl_c = d.add_table(rows=2 if not tab_c.get("detalhamento") else 3, cols=8)
+                tbl_c.alignment = WD_TABLE_ALIGNMENT.CENTER
+                tbl_c.autofit = False
+
+                larguras_c = [Cm(2.8), Cm(1.7), Cm(1.7), Cm(1.8), Cm(3.2), Cm(1.6), Cm(1.6), Cm(3.3)]
+                for col_i, w in enumerate(larguras_c):
+                    tbl_c.columns[col_i].width = w
+
+                # Cabeçalho da tabela de crédito
+                titulos_c = ("NOTA DE CRÉDITO", "UG EMIT", "UG EXEC", "ND", "PLANO INTERNO (PI)", "PTRES", "UGR", "VALOR SOLICITADO")
+                for col_i, h_tit in enumerate(titulos_c):
+                    cell_h = tbl_c.cell(0, col_i)
+                    _sombrear_celula(cell_h, "EEF2F6")
+                    _definir_bordas_celula(cell_h, cor="718096", sz="4")
+                    _margens_celula(cell_h, 50, 50, 40, 40)
+                    p_ch = cell_h.paragraphs[0]
+                    p_ch.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    p_ch.paragraph_format.space_after = Pt(0)
+                    _aplicar_formatacao_paragrafo(p_ch, h_tit, tamanho_pt=8.5, negrito_padrao=True)
+
+                # Linha de dados
+                vals_c = [
+                    (tab_c.get("nc", "—"), WD_ALIGN_PARAGRAPH.CENTER, True),
+                    (tab_c.get("emitente", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
+                    (tab_c.get("ug", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
+                    (tab_c.get("nd", "—"), WD_ALIGN_PARAGRAPH.CENTER, True),
+                    (tab_c.get("pi", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
+                    (tab_c.get("ptres", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
+                    (tab_c.get("ugr", "—"), WD_ALIGN_PARAGRAPH.CENTER, False),
+                    (tab_c.get("valor", "—"), WD_ALIGN_PARAGRAPH.RIGHT, True),
+                ]
+                for col_i, (v_txt, v_align, v_neg) in enumerate(vals_c):
+                    cell_d = tbl_c.cell(1, col_i)
+                    _definir_bordas_celula(cell_d, cor="718096", sz="4")
+                    _margens_celula(cell_d, 50, 50, 40, 40)
+                    p_cd = cell_d.paragraphs[0]
+                    p_cd.alignment = v_align
+                    p_cd.paragraph_format.space_after = Pt(0)
+                    _aplicar_formatacao_paragrafo(p_cd, v_txt, tamanho_pt=9.5, negrito_padrao=v_neg)
+
+                # Linha de detalhamento (se houver)
+                if tab_c.get("detalhamento"):
+                    cell_det = tbl_c.cell(2, 0)
+                    for ck in range(1, 8):
+                        cell_det.merge(tbl_c.cell(2, ck))
+                    _sombrear_celula(cell_det, "F8FAFC")
+                    _definir_bordas_celula(cell_det, cor="718096", sz="4")
+                    _margens_celula(cell_det, 50, 50, 60, 60)
+                    p_det = cell_det.paragraphs[0]
+                    p_det.paragraph_format.space_after = Pt(0)
+                    _aplicar_formatacao_paragrafo(p_det, f"<b>Detalhamento de Crédito:</b> {tab_c['detalhamento']}", tamanho_pt=8.5)
 
             p_pos_c = d.add_paragraph()
             p_pos_c.paragraph_format.space_before = Pt(4)
@@ -680,12 +757,13 @@ def gerar_docx_documento(doc: dict, destino: Path, anexos: list[tuple[str, Path]
                         p_tit.paragraph_format.space_before = Pt(4)
                         p_tit.paragraph_format.space_after = Pt(8)
                         pag_info = f" (Pág. {idx_pag + 1}/{total_pags})" if total_pags > 1 else ""
-                        _aplicar_formatacao_paragrafo(p_tit, f"<b>ANEXO: {rotulo.upper()}{pag_info}</b>", tamanho_pt=11)
+                        _aplicar_formatacao_paragrafo(p_tit, f"<b>ANEXO: {rotulo.upper()}{pag_info}</b>", tamanho_pt=10.5)
                         pix = pag.get_pixmap(dpi=150)
                         img_bytes = pix.tobytes("png")
-                        d.add_picture(io.BytesIO(img_bytes), width=Cm(17.5))
-            except Exception:
-                pass
+                        d.add_picture(io.BytesIO(img_bytes), width=Cm(16.5))
+            except Exception as exc:
+                import logging
+                logging.getLogger("reqemp.docx").warning("Falha ao incorporar anexo no docx: %s", exc)
 
     d.save(str(destino))
     return destino

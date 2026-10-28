@@ -135,6 +135,43 @@ def _tabela_credito_dados(f: dict, total: Decimal | None) -> dict:
     }
 
 
+def _tabela_credito_dados_multi(fontes: list[dict], total: Decimal | None) -> dict:
+    linhas = []
+    detalhes = []
+    for f in fontes:
+        det = _texto_detalhamento(f, total) if total is not None and f.get("indetalhada") else None
+        if det:
+            detalhes.append(f"NC {f.get('nc')}: {det}")
+        cred_disp = f.get("credito", {}).get("disponivel") if f.get("credito") else None
+        linhas.append({
+            "nc": f.get("nc") or pendente("nº da NC"),
+            "emitente": f.get("emitente") or f.get("ug") or pendente("UG emitente"),
+            "ug": f.get("ug") or pendente("UG executora"),
+            "nd": f.get("nd") or pendente("ND"),
+            "pi": f.get("pi") or "—",
+            "ptres": f.get("ptres") or pendente("PTRES"),
+            "ugr": f.get("ugr") or pendente("UGR"),
+            "fonte_rec": f.get("fonte_rec") or "—",
+            "valor": brl(cred_disp) if cred_disp is not None else "—",
+            "detalhamento": det,
+        })
+    return {
+        "multiplas": True,
+        "linhas": linhas,
+        "total": brl(total) if total is not None else "—",
+        "detalhamento": "\n".join(detalhes) if detalhes else None,
+        "nc": ", ".join(f.get("nc") or "" for f in fontes),
+        "emitente": fontes[0].get("emitente") if fontes else "—",
+        "ug": fontes[0].get("ug") if fontes else "—",
+        "nd": ", ".join(dict.fromkeys(f.get("nd") or "" for f in fontes)),
+        "pi": ", ".join(dict.fromkeys(f.get("pi") or "—" for f in fontes)),
+        "ptres": ", ".join(dict.fromkeys(f.get("ptres") or "" for f in fontes)),
+        "ugr": ", ".join(dict.fromkeys(f.get("ugr") or "" for f in fontes)),
+        "fonte_rec": ", ".join(dict.fromkeys(f.get("fonte_rec") or "—" for f in fontes)),
+        "valor": brl(total) if total is not None else "—",
+    }
+
+
 def _tabela_itens(fornecedores: list[dict]) -> list[dict]:
     tabelas = []
     for f in fornecedores:
@@ -176,7 +213,11 @@ def _anexos_requisicao(norm: dict) -> list[str] | None:
     """Anexos na mesma ordem em que o PDF final os junta: instrução da adesão (se houver) e a NC."""
     lista = [d["anexo"] for d in ((norm.get("adesao") or {}).get("documentos") or [])]
     if norm.get("anexar_nc"):
-        lista.append("Cópia da Nota de Crédito.")
+        fontes = norm.get("fontes") or ([norm["fonte"]] if norm.get("fonte") else [])
+        if len(fontes) > 1:
+            lista.append(f"Cópias das Notas de Crédito ({len(fontes)} NCs).")
+        else:
+            lista.append("Cópia da Nota de Crédito.")
     return lista or None
 
 
@@ -228,16 +269,26 @@ def montar_requisicao(norm: dict) -> dict:
         else:
             pars.append(" ".join(extras))
 
-    f = norm.get("fonte")
+    fontes = norm.get("fontes") or ([norm["fonte"]] if norm.get("fonte") else [])
     tab_credito = None
-    if novo and f:
-        l2 = "2. Fonte de Recurso (indicação de crédito orçamentário, art. 150 da Lei 14.133/2021):"
-        pars.append(l2)
-        tab_credito = _tabela_credito_dados(f, norm.get("total"))
-    else:
-        l2 = f"2. Fonte de Recurso (indicação de crédito orçamentário, art. 150 da Lei 14.133/2021): {_linha_fonte(f)}." if f else f"2. Fonte de Recurso (indicação de crédito orçamentário, art. 150 da Lei 14.133/2021): {pendente('crédito orçamentário')}."
-        det = _texto_detalhamento(f, norm["total"]) if f else None
+    if novo and fontes:
+        if len(fontes) > 1:
+            l2 = "2. Fontes de Recurso (indicação de crédito orçamentário, art. 150 da Lei 14.133/2021):"
+            pars.append(l2)
+            tab_credito = _tabela_credito_dados_multi(fontes, norm.get("total"))
+        else:
+            f = fontes[0]
+            l2 = "2. Fonte de Recurso (indicação de crédito orçamentário, art. 150 da Lei 14.133/2021):"
+            pars.append(l2)
+            tab_credito = _tabela_credito_dados(f, norm.get("total"))
+    elif fontes:
+        f = fontes[0]
+        l2 = f"2. Fonte de Recurso (indicação de crédito orçamentário, art. 150 da Lei 14.133/2021): {_linha_fonte(f)}."
+        det = _texto_detalhamento(f, norm["total"])
         pars.append(l2 + (" " + det if det else ""))
+    else:
+        l2 = f"2. Fonte de Recurso (indicação de crédito orçamentário, art. 150 da Lei 14.133/2021): {pendente('crédito orçamentário')}."
+        pars.append(l2)
 
     # Itens 3 a 6 (tipo de empenho, contrato, PCA). Contrato e PCA: sem citação de dispositivo no PDF (decisão do usuário,
     # 02/10/2026); as conferências seguem na tela.

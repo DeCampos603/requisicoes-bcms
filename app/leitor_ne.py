@@ -368,10 +368,10 @@ def completar_registro(ne: dict) -> dict:
     """Acrescenta ao registro lido da NE o que o sistema deriva dela: NC/pregão citados e totais por operação."""
     ne["derivados"] = derivados_da_descricao(ne.get("descricao"))
     inc = refo = anu = ZERO
-    for it in ne["itens"]:
-        for op in it["operacoes"]:
-            v = Decimal(op["valor_total"]) if op["valor_total"] != "None" else ZERO
-            nome = op["operacao"].lower()
+    for it in ne.get("itens", []):
+        for op in it.get("operacoes", []):
+            v = Decimal(op["valor_total"]) if op.get("valor_total") and op["valor_total"] != "None" else ZERO
+            nome = str(op.get("operacao") or "").lower()
             if nome.startswith("inclus"):
                 inc += v
             elif nome.startswith("refor"):
@@ -379,4 +379,24 @@ def completar_registro(ne: dict) -> dict:
             elif nome.startswith(("anula", "cancel")):
                 anu += v
     ne["valor_incluido"], ne["valor_reforcado"], ne["valor_anulado"] = str(inc), str(refo), str(anu)
+    ne["tem_pdf"] = True
+
+    # Situação contábil e operacional em vigor
+    v_atual = Decimal(str(ne.get("valor_atual") or "0"))
+    if v_atual <= ZERO:
+        ne["situacao"] = "TOTALMENTE_ANULADO"
+        ne["situacao_rotulo"] = "Totalmente Anulada"
+    elif refo > ZERO and anu > ZERO:
+        ne["situacao"] = "MISTO"
+        ne["situacao_rotulo"] = "Reforçada e Parcialmente Anulada"
+    elif refo > ZERO:
+        ne["situacao"] = "REFORCADO"
+        ne["situacao_rotulo"] = "Reforçada"
+    elif anu > ZERO:
+        ne["situacao"] = "PARCIALMENTE_ANULADO"
+        ne["situacao_rotulo"] = "Parcialmente Anulada"
+    else:
+        ne["situacao"] = "NORMAL"
+        ne["situacao_rotulo"] = "Empenho Inicial"
+
     return ne

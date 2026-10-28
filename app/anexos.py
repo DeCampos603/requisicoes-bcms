@@ -343,6 +343,14 @@ def localizar_anexo_nc(fonte: dict) -> Path | None:
             matches = sorted(pasta.glob(f"*{chave}*.pdf"), reverse=True)
             if matches:
                 return matches[0]
+
+    # Busca recursiva resiliente em todas as pastas de NC
+    if chave:
+        for base_dir in (config.DADOS / "nc", config.ANEXOS / "nc", config.EMPENHOS / "Notas de Crédito"):
+            if base_dir.is_dir():
+                found = sorted(base_dir.rglob(f"*{chave}*.pdf"), reverse=True)
+                if found and found[0].is_file():
+                    return found[0]
     return None
 
 
@@ -381,5 +389,13 @@ def localizar_anexo_ne(ne_dict: dict) -> Path | None:
             matches = sorted(pasta.glob(f"*{chave}*.pdf"), reverse=True)
             if matches:
                 return matches[0]
+
+    # Busca recursiva resiliente em todas as pastas de NE
+    if chave:
+        for base_dir in (config.DADOS / "empenhos", config.ANEXOS / "ne", config.EMPENHOS / "Empenhos"):
+            if base_dir.is_dir():
+                found = sorted(base_dir.rglob(f"*{chave}*.pdf"), reverse=True)
+                if found and found[0].is_file():
+                    return found[0]
     return None
 

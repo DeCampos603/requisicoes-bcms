@@ -64,6 +64,120 @@ def _pastas_ne() -> dict[str, list[Path]]:
     return pastas
 
 
+def _conciliar_planilha_empenhos(nes: dict[str, dict], progresso: Progresso = print) -> int:
+    """Lê EMPENHOS/EMPENHO.xlsx (se existir) e enriquece nes com os dados e situações do Tesouro Gerencial."""
+    caminho_planilha = config.EMPENHOS_RAIZ / "EMPENHO.xlsx"
+    if not caminho_planilha.is_file():
+        return 0
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(caminho_planilha, data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+    except Exception as e:
+        progresso(f"  [Aviso] Falha ao ler {caminho_planilha.name}: {e}")
+        return 0
+
+    def _parse_num(v) -> Decimal:
+        if v is None: return ZERO
+        s = str(v).replace(".", "").replace(",", ".") if isinstance(v, str) else str(v)
+        try: return Decimal(s)
+        except Exception: return ZERO
+
+    planilha_nes: dict[str, dict] = {}
+    for r in rows[3:]:
+        ne_str = str(r[4] or "")
+        if not ("16032900001" in ne_str or "16732900001" in ne_str):
+            continue
+        ug = ne_str[:6]
+        chave = ne_str[11:]
+        k = f"{ug}:{chave}"
+        op = str(r[17] or "").upper()
+        v_op = _parse_num(r[16])
+        c62211 = _parse_num(r[23])
+        c62213 = _parse_num(r[25])
+
+        if k not in planilha_nes:
+            planilha_nes[k] = {
+                "ug": ug, "chave": chave, "ano": int(chave[:4]), "numero": int(chave[6:]),
+                "favorecido_codigo": str(r[5] or ""), "favorecido_nome": str(r[6] or ""),
+                "nd": str(r[8] or ""), "pi": str(r[10] or ""), "dia": str(r[2] or ""),
+                "tipo": str(r[18] or ""), "valor_liquido": _parse_num(r[7]),
+                "inclusoes": ZERO, "reforcos": ZERO, "anulacoes": ZERO,
+            }
+        reg = planilha_nes[k]
+        if "INCLUSA" in op:
+            reg["inclusoes"] += v_op
+        elif "REFORC" in op:
+            reg["reforcos"] += v_op
+        elif "ANULA" in op or "CANCEL" in op:
+            reg["anulacoes"] += v_op
+        elif c62213 > 0:
+            reg["anulacoes"] += c62213
+        elif c62211 > 0:
+            reg["inclusoes"] += c62211
+
+    novas_sem_pdf = 0
+    for k, d in planilha_nes.items():
+        v = d["valor_liquido"]
+        if v <= ZERO:
+            sit = "TOTALMENTE_ANULADO"
+            rot = "Totalmente Anulada"
+        elif d["reforcos"] > ZERO and d["anulacoes"] > ZERO:
+            sit = "MISTO"
+            rot = "Reforçada e Parcialmente Anulada"
+        elif d["reforcos"] > ZERO:
+            sit = "REFORCADO"
+            rot = "Reforçada"
+        elif d["anulacoes"] > ZERO:
+            sit = "PARCIALMENTE_ANULADO"
+            rot = "Parcialmente Anulada"
+        else:
+            sit = "NORMAL"
+            rot = "Empenho Inicial"
+
+        if k in nes:
+            ne = nes[k]
+            ne["saldo_planilha"] = str(v)
+            ne["situacao_planilha"] = sit
+        else:
+            ug = d["ug"]
+            chave = d["chave"]
+            nes[k] = {
+                "ug_pasta": ug,
+                "chave": chave,
+                "ano": d["ano"],
+                "numero": d["numero"],
+                "favorecido_codigo": d["favorecido_codigo"],
+                "favorecido_nome": d["favorecido_nome"],
+                "valor_atual": str(v),
+                "valor_incluido": str(d["inclusoes"]),
+                "valor_reforcado": str(d["reforcos"]),
+                "valor_anulado": str(d["anulacoes"]),
+                "situacao": sit,
+                "situacao_rotulo": rot,
+                "saldo_planilha": str(v),
+                "situacao_planilha": sit,
+                "data_emissao": d["dia"],
+                "nd": d["nd"],
+                "pi": d["pi"],
+                "tipo_empenho": d["tipo"],
+                "versao": "001",
+                "tem_pdf": False,
+                "caminho": None,
+                "itens": [],
+                "derivados": {},
+                "avisos": ["Documento presente na planilha EMPENHO.xlsx, mas PDF ausente da pasta de empenhos."]
+            }
+            novas_sem_pdf += 1
+
+    if novas_sem_pdf > 0:
+        progresso(f"  Planilha EMPENHO.xlsx: {len(planilha_nes)} NEs conciliadas ({novas_sem_pdf} sem PDF arquivadas)")
+    else:
+        progresso(f"  Planilha EMPENHO.xlsx: {len(planilha_nes)} NEs conciliadas")
+    return novas_sem_pdf
+
+
 def importar_nes(progresso: Progresso = print) -> dict:
     todas_pastas = [p for pastas in _pastas_ne().values() for p in pastas if p.is_dir()]
     if not todas_pastas:
@@ -102,6 +216,8 @@ def importar_nes(progresso: Progresso = print) -> dict:
                     nes[chave] = ne
         progresso(f"  NE {ug}: {sum(1 for k in nes if k.startswith(ug + ':'))} lidas")
     saida = {"gerado_em": _agora(), "total": len(nes), "falhas": falhas, "nes": nes}
+    _conciliar_planilha_empenhos(nes, progresso=progresso)
+    saida["total"] = len(nes)
     _gravar("nes.json", saida)
     return {"nes": len(nes), "falhas": len(falhas)}
 
@@ -168,6 +284,11 @@ def importar_credito(progresso: Progresso = print) -> dict:
     hist = _bloco_js(html, "HISTDATA")
     m = re.search(r"atualizado em (\d{2}/\d{2}/\d{4}) às (\d{2}:\d{2})", html)
     posicao = f"{m.group(1)} {m.group(2)}" if m else None
+    if not posicao:
+        try:
+            posicao = datetime.fromtimestamp(caminho.stat().st_mtime).strftime("%d/%m/%Y %H:%M")
+        except Exception:
+            posicao = None
     ncs: dict[str, dict] = {}
     for it in hist["items"]:
         if it["fav_cod"] not in ("160329", "167329"):

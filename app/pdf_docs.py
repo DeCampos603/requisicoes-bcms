@@ -330,6 +330,67 @@ def _tabela_credito(tab: dict, estilos: dict, largura: float) -> Table:
     p_neg = lambda txt: Paragraph(f"<b>{_x(txt)}</b>", estilos["cred_td_neg"])
     p_dir = lambda txt: Paragraph(f"<b>{_x(txt)}</b>", estilos["cred_td_dir"])
 
+    if tab.get("multiplas") and tab.get("linhas"):
+        cab = [
+            p_th("NOTA DE CRÉDITO"),
+            p_th("UG EMIT"),
+            p_th("UG EXEC"),
+            p_th("ND"),
+            p_th("PLANO INTERNO (PI)"),
+            p_th("PTRES"),
+            p_th("UGR"),
+            p_th("CRÉDITO DISP."),
+        ]
+        dados = [cab]
+        for r in tab["linhas"]:
+            dados.append([
+                p_neg(r.get("nc", "—")),
+                p_td(r.get("emitente", "—")),
+                p_td(r.get("ug", "—")),
+                p_neg(r.get("nd", "—")),
+                p_td(r.get("pi", "—")),
+                p_td(r.get("ptres", "—")),
+                p_td(r.get("ugr", "—")),
+                p_dir(r.get("valor", "—")),
+            ])
+        tot_idx = len(dados)
+        dados.append([
+            p_neg("TOTAL DA REQUISIÇÃO"),
+            "", "", "", "", "", "",
+            p_dir(tab.get("total", "—")),
+        ])
+        pesos = [78, 46, 46, 50, 96, 46, 46, 94]
+        k = largura / sum(pesos)
+        col_widths = [w * k for w in pesos]
+
+        estilos_tab = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEF2F6")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#718096")),
+            ("TOPPADDING", (0, 0), (-1, -1), 4.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("SPAN", (0, tot_idx), (6, tot_idx)),
+            ("BACKGROUND", (0, tot_idx), (-1, tot_idx), colors.HexColor("#EEF2F6")),
+        ]
+        detalhe = tab.get("detalhamento")
+        if detalhe:
+            p_det = Paragraph(f"<b>Detalhamento de Crédito:</b> {_mk(detalhe)}", estilos["cred_detalhe"])
+            det_idx = len(dados)
+            dados.append([p_det] + [""] * 7)
+            estilos_tab.extend([
+                ("SPAN", (0, det_idx), (-1, det_idx)),
+                ("BACKGROUND", (0, det_idx), (-1, det_idx), colors.HexColor("#F8FAFC")),
+                ("TOPPADDING", (0, det_idx), (-1, det_idx), 4),
+                ("BOTTOMPADDING", (0, det_idx), (-1, det_idx), 4),
+                ("LEFTPADDING", (0, det_idx), (-1, det_idx), 6),
+                ("RIGHTPADDING", (0, det_idx), (-1, det_idx), 6),
+            ])
+        t = Table(dados, colWidths=col_widths, hAlign="LEFT")
+        t.setStyle(TableStyle(estilos_tab))
+        return t
+
     cab = [
         p_th("NOTA DE CRÉDITO"),
         p_th("UG EMIT"),

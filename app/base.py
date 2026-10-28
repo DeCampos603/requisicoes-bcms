@@ -206,6 +206,7 @@ def buscar_pregoes(q: str = "", limite: int = 40) -> list[dict]:
     saida = []
     for p in todos.values():
         obj, cats = sintetizar_objeto_pregao(p)
+        itens_match: list[dict] = []
         if alvo:
             forns_nomes: list[str] = []
             forns_cnpjs: list[str] = []
@@ -216,6 +217,15 @@ def buscar_pregoes(q: str = "", limite: int = 40) -> list[dict]:
                     forns_nomes.append(fn)
                 if fc and fc not in forns_cnpjs:
                     forns_cnpjs.append(fc)
+                desc_it = it.get("descricao") or ""
+                catmat_it = it.get("catmat_nome") or ""
+                if alvo in _norm(desc_it) or (catmat_it and alvo in _norm(catmat_it)):
+                    itens_match.append({
+                        "item": it.get("item"),
+                        "descricao": desc_it or catmat_it,
+                        "fornecedor": fn or fc or "",
+                        "valor_unitario": it.get("valor_unitario"),
+                    })
             pool = " ".join([
                 p["numero"], p["ugg"], nome_uasg(p["ugg"]) or "", sigla_uasg(p["ugg"]) or "",
                 " ".join(p.get("fornecedores", [])),
@@ -232,9 +242,13 @@ def buscar_pregoes(q: str = "", limite: int = 40) -> list[dict]:
                     match_digitos = True
                 elif len(digitos) >= 8 and any(digitos in re.sub(r"\D", "", f) for f in forns_cnpjs):
                     match_digitos = True
-            if not (match_texto or match_digitos):
+            if not (match_texto or match_digitos or itens_match):
                 continue
-        saida.append(_resumo_pregao(p))
+        resumo = _resumo_pregao(p)
+        if itens_match:
+            resumo["itens_match"] = itens_match[:3]
+            resumo["total_itens_match"] = len(itens_match)
+        saida.append(resumo)
     saida.sort(key=lambda r: (r["tipo_unidade"] != "GERENCIADORA", r["numero"].split("/")[1] if "/" in r["numero"] else "", r["numero"]), reverse=False)
     return saida[:limite]
 
@@ -658,10 +672,38 @@ def buscar_nes(q: str = "", limite: int = 500, ug: str | None = None, empresa: s
 
 
 def resumo_ne(ne: dict) -> dict:
+    v_atual = str(ne.get("valor_atual") or "0")
+    sit = ne.get("situacao")
+    rot = ne.get("situacao_rotulo")
+    if not sit:
+        if v_atual in ("0", "0.00", "0,00", 0):
+            sit = "TOTALMENTE_ANULADO"
+            rot = "Totalmente Anulada"
+        elif float(ne.get("valor_reforcado") or 0) > 0 and float(ne.get("valor_anulado") or 0) > 0:
+            sit = "MISTO"
+            rot = "Reforçada e Parcialmente Anulada"
+        elif float(ne.get("valor_reforcado") or 0) > 0:
+            sit = "REFORCADO"
+            rot = "Reforçada"
+        elif float(ne.get("valor_anulado") or 0) > 0:
+            sit = "PARCIALMENTE_ANULADO"
+            rot = "Parcialmente Anulada"
+        else:
+            sit = "NORMAL"
+            rot = "Empenho Inicial"
+
     return {
         "ug": ne["ug_pasta"], "chave": ne["chave"], "ano": ne["ano"], "numero": ne["numero"],
         "favorecido_codigo": mascarar_cpf(ne.get("favorecido_codigo")), "favorecido_nome": ne.get("favorecido_nome"),
-        "valor_atual": ne.get("valor_atual"), "tipo_empenho": ne.get("tipo_empenho"),
+        "valor_atual": ne.get("valor_atual"),
+        "valor_incluido": ne.get("valor_incluido"),
+        "valor_reforcado": ne.get("valor_reforcado"),
+        "valor_anulado": ne.get("valor_anulado"),
+        "situacao": sit,
+        "situacao_rotulo": rot,
+        "versao": ne.get("versao"),
+        "tem_pdf": ne.get("tem_pdf", True),
+        "tipo_empenho": ne.get("tipo_empenho"),
         "data_emissao": ne.get("data_emissao"), "nd": ne.get("nd"), "pi": ne.get("pi"),
         "n_itens": len(ne.get("itens", [])), "pregao": (ne.get("derivados") or {}).get("pregao"),
         "nc": (ne.get("derivados") or {}).get("nc"),

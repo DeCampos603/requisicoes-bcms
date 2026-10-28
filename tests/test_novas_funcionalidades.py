@@ -350,7 +350,9 @@ def test_quantidade_fracionada_6_casas_decimais_calculo_inverso(repo):
 def test_contratacao_18_pca_agua_e_saneamento(repo):
     """Testa que a contratação 18 do PCA (Água e Esgoto) é validada com sucesso."""
     import shutil
-    shutil.copy("dados/pca.json", repo["dados"] / "pca.json")
+    from pathlib import Path
+    pca_src = Path(__file__).parent.parent / "dados" / "pca.json"
+    shutil.copy(pca_src, repo["dados"] / "pca.json")
 
     dados_2025 = payload_requisicao(
         pca={"consta": True, "classe": "692 - SERVIÇOS DE DISTRIBUIÇÃO DE ÁGUA ATRAVÉS DE TUBULAÇÃO", "contratacao": "160329-18/2025"}
@@ -465,6 +467,192 @@ def test_gerar_reforco_com_word_e_zip_anexos(client, repo):
         assert dados["docx"] in nomes
         assert any("NE" in n and n.endswith(".pdf") for n in nomes)
         assert any("NC" in n and n.endswith(".pdf") for n in nomes)
+
+
+def test_detalhamentos_servico_e_material_permanente(repo):
+    """Testa que os detalhamentos de NC indetalhada incluem Serviços e Material Permanente corretamente."""
+    from app import classificacao
+
+    # 1. NC 339000 (Despesas Correntes) sem filtro de objeto deve conter Material de Consumo E Serviços
+    cands_3390 = classificacao.nds_candidatas("339000", objeto=None)
+    nds_3390 = [c["nd"] for c in cands_3390]
+    assert "339030" in nds_3390  # Material de Consumo
+    assert "339039" in nds_3390  # Serviços PJ
+    assert "339040" in nds_3390  # TIC PJ
+    assert "339036" in nds_3390  # Serviços PF
+    assert "339037" in nds_3390  # Mão de obra
+    assert "339033" in nds_3390  # Passagens
+    assert "339052" not in nds_3390  # 339052 não existe! Elemento 52 é 449052.
+
+    # 2. NC 449000 (Investimentos / Despesas de Capital) deve conter 449052 (Material Permanente)
+    cands_4490 = classificacao.nds_candidatas("449000", objeto=None)
+    nds_4490 = [c["nd"] for c in cands_4490]
+    assert "449052" in nds_4490
+    perm = next(c for c in cands_4490 if c["nd"] == "449052")
+    assert perm["nome"] == "EQUIPAMENTOS E MATERIAL PERMANENTE"
+    assert "449039" in nds_4490  # Serviços PJ (Capital)
+    assert "449051" in nds_4490  # Obras e Instalações
+
+    # 3. Na avaliação de requisição com NC indetalhada, as candidatas retornadas no frontend contêm ambos
+    from tests.test_regras import _nd00
+    from app import regras
+    av = regras.avaliar_requisicao(_nd00(nd_destino="339039"))
+    cands_req = av.norm["resumo"]["fonte"]["nds_candidatas"]
+    nds_req = [c["nd"] for c in cands_req]
+    assert "339030" in nds_req
+    assert "339039" in nds_req
+    assert "339040" in nds_req
+
+
+def test_busca_pregoes_por_item_descricao():
+    """Busca de pregão por termo de item (ex: 'Tubo') traz correspondências nos itens."""
+    res = base.buscar_pregoes("Tubo", limite=50)
+    assert len(res) > 0, "Deveria encontrar pregões com Tubo"
+    for p in res:
+        assert "itens_match" in p
+        assert "total_itens_match" in p
+        assert p["total_itens_match"] >= 1
+        assert len(p["itens_match"]) >= 1
+        item_0 = p["itens_match"][0]
+        assert "item" in item_0
+        assert "descricao" in item_0
+        # A descrição deve conter tubo (case-insensitive)
+        assert "tubo" in item_0["descricao"].lower() or any("tubo" in im["descricao"].lower() for im in p["itens_match"])
+
+
+def test_classificador_subitens_embutido_nativo():
+    """Classificador de subitens roda localmente e de forma determinística offline."""
+    from app import classificacao
+
+    assert classificacao.disponivel() is True, "Classificador deve estar disponível nativamente"
+
+    # Teste de material de construção / hidráulico
+    res_mat = classificacao.sugerir_subitens("TUBO DE PVC SOLDAVEL 25MM", nd="339030", objeto="MATERIAL")
+    assert res_mat["disponivel"] is True
+    assert len(res_mat["sugestoes"]) > 0
+    top_si = res_mat["sugestoes"][0]
+    assert top_si["subitem"] == "24", f"Subitem esperado 24, obteve {top_si['subitem']}"
+    assert "MANUTENÇÃO DE BENS IMÓVEIS" in top_si["nome"].upper()
+
+    # Teste de serviço
+    res_serv = classificacao.sugerir_subitens("MANUTENÇÃO PREDIAL PREVENTIVA E CORRETIVA", nd="339039", objeto="SERVICO")
+    assert res_serv["disponivel"] is True
+    assert len(res_serv["sugestoes"]) > 0
+
+
+def test_multiplas_ncs_requisicao_e_anexos(repo):
+    """Testa requisição com múltiplas NCs: soma de crédito, validação, tabela e anexos no ZIP."""
+    import zipfile
+    from tests.conftest import _nc, _pdf_vazio
+    from app import docx_docs, pdf_docs, regras, textos
+
+    # 1. Configura repositório sintético com 2 NCs
+    pdf_nc2 = _pdf_vazio(config.ANEXOS / "nc" / "160329" / "2026NC000101.pdf", "NC 101")
+    arq_ncs = config.DADOS / "ncs.json"
+    d_ncs = json.loads(arq_ncs.read_text(encoding="utf-8"))
+    d_ncs["ncs"]["160298:2026NC000101"] = _nc("2026NC000101", "160298", nd="339030", pdf=pdf_nc2)
+    arq_ncs.write_text(json.dumps(d_ncs), encoding="utf-8")
+
+    # Atualiza base de crédito para ter saldo em ambas as NCs
+    # NC 100 tem saldo 30.000, NC 101 tem saldo 15.000 -> Total disponível 45.000
+    arq_cred = config.DADOS / "credito.json"
+    d_cred = json.loads(arq_cred.read_text(encoding="utf-8"))
+    d_cred["ncs"]["160298:2026NC000101"] = {
+        "emit": "160298", "chave": "2026NC000101", "dia": "10/08/2026",
+        "op": "DESCENTRALIZACAO DE CREDITO", "obj": "OBRAS E REPAROS",
+        "favorecidas": {
+            "160329": {
+                "status": "Disponível", "prov": 20000.0, "emp": 5000.0, "cred": 15000.0,
+                "celulas": [{"ptres": "2000", "pi": "ABC123XYZ01", "nd": "339030", "prov": 20000.0, "emp": 5000.0, "cred": 15000.0}]
+            }
+        }
+    }
+    arq_cred.write_text(json.dumps(d_cred), encoding="utf-8")
+    base.invalidar()
+
+    # 2. Monta requisição com valor de R$ 35.000,00 (maior que NC 100 isolada, mas menor que a soma de 45.000)
+    dados = payload_requisicao(
+        fontes=[{"nc": "2026NC000100"}, {"nc": "2026NC000101"}],
+    )
+    dados["fornecedores"][0]["itens"][0]["qtde"] = "350"
+    dados["fornecedores"][0]["itens"][0]["valor_unit"] = "100,00"
+
+    av = regras.avaliar_requisicao(dados)
+    assert not av.erros, f"Não deveria ter erros: {av.erros}"
+    assert len(av.norm["fontes"]) == 2
+    assert av.norm["fonte"]["nc"] == "2026NC000100"  # Retrocompatibilidade
+
+    # 3. Verifica redação e tabela do DIEx
+    req_texto = textos.montar_requisicao(av.norm)
+    corpo = " ".join(req_texto["paragrafos"])
+    assert "Fontes de Recurso" in corpo
+    assert req_texto["tabela_credito"] is not None
+    assert req_texto["tabela_credito"].get("multiplas") is True
+    ncs_na_tabela = [l["nc"] for l in req_texto["tabela_credito"]["linhas"]]
+    assert "2026NC000100" in ncs_na_tabela
+    assert "2026NC000101" in ncs_na_tabela
+    assert any("2 NCs" in a or "Notas de Crédito" in a for a in req_texto["anexos"])
+
+    # 4. Geração de PDF e DOCX com tabelas consolidadas
+    import io
+    buf_pdf = io.BytesIO()
+    pdf_docs.gerar_pdf_documento(req_texto, buf_pdf)
+    assert buf_pdf.tell() > 1000
+
+    path_docx = config.SAIDA / "req_multi_nc_teste.docx"
+    docx_docs.gerar_docx_documento(req_texto, path_docx)
+    assert path_docx.is_file() and path_docx.stat().st_size > 1000
+
+    # 5. Teste de API /api/gerar/requisicao e conferência do ZIP
+    client = TestClient(main.app, base_url="http://127.0.0.1:8765", headers={"X-Reqemp-Token": main.TOKEN})
+    res_fin = client.post("/api/gerar/requisicao", json=dados)
+    assert res_fin.status_code == 200, res_fin.text
+    resp_data = res_fin.json()
+    assert resp_data["zip"] is not None
+
+    # Inspeciona o arquivo ZIP
+    caminho_zip = config.SAIDA / resp_data["zip"]
+    assert caminho_zip.is_file()
+    with zipfile.ZipFile(caminho_zip, "r") as zf:
+        nomes = zf.namelist()
+        assert any("2026NC000100" in n and n.endswith(".pdf") for n in nomes)
+        assert any("2026NC000101" in n and n.endswith(".pdf") for n in nomes)
+
+
+def test_situacao_ne_reforco_anulacao_e_conciliacao():
+    """Testa que as NEs expõem situação contábil clara (reforço, anulação, empenho inicial)."""
+    # 1. Empenho totalmente anulado
+    ne_anulada = {
+        "ug_pasta": "160329", "chave": "2026NE000001", "ano": 2026, "numero": 1,
+        "valor_atual": "0.00", "valor_incluido": "600.00", "valor_reforcado": "0.00", "valor_anulado": "600.00",
+        "situacao": "TOTALMENTE_ANULADO", "situacao_rotulo": "Totalmente Anulada", "versao": "005", "tem_pdf": True
+    }
+    r_anu = base.resumo_ne(ne_anulada)
+    assert r_anu["situacao"] == "TOTALMENTE_ANULADO"
+    assert r_anu["situacao_rotulo"] == "Totalmente Anulada"
+    assert r_anu["valor_anulado"] == "600.00"
+
+    # 2. Empenho com reforço
+    ne_reforcada = {
+        "ug_pasta": "160329", "chave": "2026NE000003", "ano": 2026, "numero": 3,
+        "valor_atual": "6899.99", "valor_incluido": "2100.11", "valor_reforcado": "4799.88", "valor_anulado": "0.00",
+        "situacao": "REFORCADO", "situacao_rotulo": "Reforçada", "versao": "008", "tem_pdf": True
+    }
+    r_ref = base.resumo_ne(ne_reforcada)
+    assert r_ref["situacao"] == "REFORCADO"
+    assert r_ref["valor_reforcado"] == "4799.88"
+    assert r_ref["versao"] == "008"
+
+    # 3. Empenho da base real/atualizada
+    todas = base.buscar_nes("", limite=50)
+    assert len(todas) > 0
+    for ne_item in todas:
+        assert "situacao" in ne_item
+        assert "situacao_rotulo" in ne_item
+        assert "valor_atual" in ne_item
+
+
+
 
 
 
